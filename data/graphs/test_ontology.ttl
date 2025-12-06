@@ -1,0 +1,25 @@
+@prefix onto: <http://pkm.local/ontology/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+onto:hasTag a owl:ObjectProperty ;
+    rdfs:domain onto:Document ;
+    rdfs:range onto:Tag .
+
+onto:linksTo a owl:ObjectProperty ;
+    rdfs:domain onto:Document ;
+    rdfs:range onto:Document .
+
+onto:mentions a owl:ObjectProperty ;
+    rdfs:domain onto:Document ;
+    rdfs:range onto:Concept .
+
+onto:Concept a owl:Class ;
+    rdfs:label "Concept" .
+
+onto:Tag a owl:Class ;
+    rdfs:label "Tag" .
+
+onto:Document a owl:Class ;
+    rdfs:label "Document" .
+

@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PKM Chat Assistant</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>💬 Your Personal Knowledge Base</h1>
+            <p class="subtitle" id="source-count">Loading sources...</p>
+        </header>
+
+        <div class="chat-container">
+            <div id="chat-messages" class="chat-messages">
+                <div class="welcome-message">
+                    <p>👋 Welcome! Ask me anything about your sources.</p>
+                </div>
+            </div>
+
+            <div class="suggested-questions">
+                <h3>💡 Suggested Questions</h3>
+                <div class="suggestions-grid">
+                    <button class="suggestion-btn" onclick="sendSuggestion('Summarize the main concepts across all my sources')">
+                        📝 Summarize the main concepts
+                    </button>
+                    <button class="suggestion-btn" onclick="sendSuggestion('What are the key differences between the main concepts?')">
+                        🔍 What are the key differences?
+                    </button>
+                    <button class="suggestion-btn" onclick="sendSuggestion('Compare and contrast the main arguments')">
+                        ⚖️ Compare the main arguments
+                    </button>
+                    <button class="suggestion-btn" onclick="sendSuggestion('List the key events and create a timeline')">
+                        📋 List the key events
+                    </button>
+                </div>
+            </div>
+
+            <div class="input-container">
+                <input 
+                    type="text" 
+                    id="user-input" 
+                    placeholder="Ask anything about your sources..." 
+                    onkeypress="handleKeyPress(event)"
+                    autocomplete="off"
+                >
+                <button id="send-btn" onclick="sendMessage()">Send</button>
+            </div>
+        </div>
+
+        <footer>
+            <p>💾 <strong>Add sources:</strong> Drop files in <code>data/sources/</code> folder • <strong>Discover sources:</strong> Use Jupyter notebooks in <code>notebooks/</code></p>
+        </footer>
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>

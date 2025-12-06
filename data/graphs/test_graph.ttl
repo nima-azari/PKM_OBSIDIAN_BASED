@@ -1,0 +1,40 @@
+@prefix onto: <http://pkm.local/ontology/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix sources: <http://pkm.local/sources/> .
+
+sources:Sources_Directory a onto:Document ;
+    rdfs:label "Sources Directory" ;
+    onto:mentions onto:_Add_Your_Source_Files_Here,
+        onto:_Automatic_Processing,
+        onto:_File_Naming,
+        onto:_To_Remove_Sources ;
+    onto:path "README.md" .
+
+sources:Test_Document a onto:Document ;
+    rdfs:label "Test Document" ;
+    onto:mentions onto:Cloud_Computing,
+        onto:Key_Concepts,
+        onto:Knowledge_Graphs ;
+    onto:path "test_document.md" .
+
+onto:Cloud_Computing a onto:Concept ;
+    rdfs:label "Cloud Computing" .
+
+onto:Key_Concepts a onto:Concept ;
+    rdfs:label "Key Concepts" .
+
+onto:Knowledge_Graphs a onto:Concept ;
+    rdfs:label "Knowledge Graphs" .
+
+onto:_Add_Your_Source_Files_Here a onto:Concept ;
+    rdfs:label "📁 Add Your Source Files Here" .
+
+onto:_Automatic_Processing a onto:Concept ;
+    rdfs:label "🔄 Automatic Processing" .
+
+onto:_File_Naming a onto:Concept ;
+    rdfs:label "📝 File Naming" .
+
+onto:_To_Remove_Sources a onto:Concept ;
+    rdfs:label "🗑️ To Remove Sources" .
+
