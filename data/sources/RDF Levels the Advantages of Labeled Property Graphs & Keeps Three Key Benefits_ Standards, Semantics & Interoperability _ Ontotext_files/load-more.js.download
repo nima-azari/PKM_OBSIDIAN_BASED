@@ -1,0 +1,3 @@
+const loadMore=()=>{const button=document.querySelector('.ott-load-more-button');const ottResults=document.querySelector('#ott-search-results');const loadMoreWrapper=document.querySelector('#ott-load-more-wrapper');if(!button||!ottResults||!loadMoreWrapper)return;button.addEventListener('click',()=>{const hiddenRecommendations=ottResults.querySelectorAll('.hidden');let count=0;const item=Array.from(hiddenRecommendations).slice(count,count+3);count+=3;item.forEach(el=>{el.classList.remove('hidden')})
+if(count>=hiddenRecommendations.length){loadMoreWrapper.classList.add('hidden')}})}
+document.addEventListener('DOMContentLoaded',()=>{loadMore()})

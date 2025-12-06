@@ -150,7 +150,7 @@ class VaultRAG:
             print(f"Loading documents from {self.sources_dir}...")
         
         # Find all supported files
-        supported_extensions = ['.md', '.txt', '.pdf']
+        supported_extensions = ['.md', '.txt', '.pdf', '.html', '.htm']
         files = []
         for ext in supported_extensions:
             files.extend(self.sources_dir.glob(f'**/*{ext}'))
@@ -163,6 +163,8 @@ class VaultRAG:
                 # Read content based on file type
                 if filepath.suffix == '.pdf':
                     content = self._read_pdf(filepath)
+                elif filepath.suffix in ['.html', '.htm']:
+                    content = self._read_html(filepath)
                 else:
                     content = filepath.read_text(encoding='utf-8', errors='ignore')
                 
@@ -202,6 +204,33 @@ class VaultRAG:
             return text
         except Exception as e:
             print(f"  Warning: Could not read PDF {filepath}: {e}")
+            return ""
+    
+    def _read_html(self, filepath: Path) -> str:
+        """Extract text from HTML file."""
+        try:
+            from bs4 import BeautifulSoup
+            import html2text
+            
+            with open(filepath, 'r', encoding='utf-8') as f:
+                html_content = f.read()
+            
+            # Parse HTML
+            soup = BeautifulSoup(html_content, 'lxml')
+            
+            # Remove script and style elements
+            for script in soup(["script", "style"]):
+                script.decompose()
+            
+            # Convert to markdown for better readability
+            h = html2text.HTML2Text()
+            h.ignore_links = False
+            h.body_width = 0
+            markdown_content = h.handle(str(soup))
+            
+            return markdown_content.strip()
+        except Exception as e:
+            print(f"  Warning: Could not read HTML {filepath}: {e}")
             return ""
     
     def keyword_search(self, query: str, top_k: int = 5) -> List[Tuple[float, Document]]:

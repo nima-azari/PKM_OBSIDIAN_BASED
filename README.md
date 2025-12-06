@@ -88,10 +88,29 @@ data/sources/
 ├── my-research-paper.pdf
 ├── notes.md
 ├── article.txt
+├── webpage.html
 └── ...
 ```
 
-Supported formats: `.md`, `.txt`, `.pdf`
+Supported formats: `.md`, `.txt`, `.pdf`, `.html`, `.htm`
+
+**For YouTube videos:**
+
+1. Add URLs to `data/sources/youtube_links.txt` (one per line)
+2. Run: `python process_youtube.py` (preserves timestamps)
+   - Or: `python process_youtube.py --article` (AI converts to clean article format)
+3. Transcripts are saved as markdown files in `data/sources/`
+
+Example `youtube_links.txt`:
+```
+# YouTube Links to Process
+https://www.youtube.com/watch?v=VIDEO_ID_1
+https://www.youtube.com/watch?v=VIDEO_ID_2
+```
+
+**Two formats available:**
+- **Timestamp mode** (default): Preserves `[MM:SS]` timestamps for each line
+- **Article mode** (`--article` flag): AI converts to structured article with headings, cleaned grammar, and continuous text
 
 ### 4. Launch the UI
 
@@ -212,6 +231,15 @@ processor = DocumentProcessor()
 # Process PDF
 note_path = processor.process_file("document.pdf", tags=["research"])
 
+# Process HTML file
+note_path = processor.process_file("webpage.html", tags=["web"])
+
+# Extract YouTube transcript (saves to data/sources/)
+note_path = processor.process_youtube_url(
+    "https://www.youtube.com/watch?v=VIDEO_ID",
+    tags=["youtube", "video"]
+)
+
 # Add text note
 note_path = processor.add_text_note(
     title="My Note",
@@ -219,6 +247,42 @@ note_path = processor.add_text_note(
     tags=["idea"]
 )
 ```
+
+### Batch YouTube Processing
+
+```bash
+# Add URLs to data/sources/youtube_links.txt
+
+# Extract with timestamps (default)
+python process_youtube.py
+
+# Convert to article format with AI
+python process_youtube.py --article
+```
+
+**Timestamp mode:**
+```markdown
+**[00:03]** hello everyone
+**[00:05]** my name is jason stokov
+**[00:07]** and i want to welcome you all to...
+```
+
+**Article mode (--article flag):**
+```markdown
+## Introduction
+
+Hello everyone, my name is Jason Stokov and I want to 
+welcome you all to our latest webinar...
+
+## Main Points
+
+[Clean, structured content with proper paragraphs and headings]
+```
+
+This will:
+- Extract transcripts for all YouTube URLs
+- Save them as markdown files in `data/sources/`
+- Automatically comment out processed URLs
 
 ## 📊 System Architecture
 
@@ -271,7 +335,8 @@ jupyter notebook notebooks/
 
 - **Core**: Python 3.10+, Flask, OpenAI
 - **RAG**: rdflib, networkx, scikit-learn, numpy
-- **Processing**: pypdf, trafilatura, beautifulsoup4
+- **Processing**: pypdf, trafilatura, beautifulsoup4, html2text
+- **Media**: youtube-transcript-api (for video transcripts)
 - **Optional**: Jupyter, anthropic
 
 Install all:
@@ -283,7 +348,8 @@ pip install -r requirements.txt
 
 - **Academic Research**: Collect papers, extract insights, build literature reviews
 - **Knowledge Base**: Personal wiki with AI-powered Q&A
-- **Web Research**: Scrape articles, assess quality, synthesize findings
+- **Web Research**: Scrape articles (HTML/web pages), assess quality, synthesize findings
+- **Video Learning**: Extract and search YouTube transcripts
 - **Graph Analysis**: Discover connections between concepts
 - **Note-taking**: Obsidian integration for structured notes
 

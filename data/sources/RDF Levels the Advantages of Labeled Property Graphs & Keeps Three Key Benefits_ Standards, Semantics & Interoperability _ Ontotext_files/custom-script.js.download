@@ -1,0 +1,2 @@
+(function($){"use strict";window.addEventListener("message",function(event){var hs_form="818f050b-7ddb-4d03-b741-56a3d41d49dd";if(event.data.type==="hsFormCallback"&&event.data.eventName==="onFormSubmit"&&event.data.id===hs_form){var email=$("#hsForm_"+hs_form+" input[name=email]");if(!email.length){email=$("iframe.hs-form-iframe").contents().find("#hsForm_"+hs_form+" input[name=email]")}
+if(email.length){document.cookie="graphdb-user-email="+email.val()+"; path=/"}}})})(jQuery)
