@@ -534,8 +534,8 @@ Provide a comprehensive answer using only the information from the sources above
             return []
     
     def export_graph_ttl(self, filename: str = None) -> str:
-        """Export RDF graph to Turtle file"""
-        if not RDF_AVAILABLE or self.rdf_graph is None:
+        """Export RDF graph to TTL file"""
+        if self.rdf_graph is None:
             if self.verbose:
                 print("Warning: RDF graph not available")
             return ""
@@ -543,7 +543,17 @@ Provide a comprehensive answer using only the information from the sources above
         if filename is None:
             filename = "knowledge_graph.ttl"
         
-        output_path = self.graphs_cache / filename
+        # Check if filename is already a full path
+        from pathlib import Path
+        filepath = Path(filename)
+        if filepath.is_absolute() or str(filename).startswith('data'):
+            output_path = filepath
+        else:
+            output_path = self.graphs_cache / filename
+        
+        # Ensure parent directory exists
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        
         self.rdf_graph.serialize(destination=str(output_path), format='turtle')
         
         if self.verbose:

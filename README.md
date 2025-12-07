@@ -112,7 +112,41 @@ https://www.youtube.com/watch?v=VIDEO_ID_2
 - **Timestamp mode** (default): Preserves `[MM:SS]` timestamps for each line
 - **Article mode** (`--article` flag): AI converts to structured article with headings, cleaned grammar, and continuous text
 
-### 4. Launch the UI
+### 4. (Optional) Generate Knowledge Graph & Article
+
+Before launching the UI, you can create a knowledge graph and generate a synthesis article:
+
+```bash
+# Step 1: Build knowledge graph from all sources
+python build_graph.py
+
+# This creates: data/graphs/knowledge_graph.ttl
+```
+
+**Optional: Manually edit the TTL file** to customize concepts and relationships.
+
+```bash
+# Step 2: Generate article from the graph
+python generate_article_from_graph.py data/graphs/knowledge_graph.ttl
+
+# This creates: data/sources/knowledge_graph_article.md
+```
+
+**What this does:**
+- Analyzes all documents in `data/sources/`
+- Extracts entities (people, organizations, locations)
+- Identifies topics and relationships
+- Creates an RDF knowledge graph (TTL format)
+- Generates a comprehensive synthesis article using AI
+- Saves the article back to `data/sources/` for chat queries
+
+**Custom output paths:**
+```bash
+python build_graph.py data/graphs/my_research.ttl
+python generate_article_from_graph.py data/graphs/my_research.ttl my_synthesis.md
+```
+
+### 5. Launch the UI
 
 ```bash
 python server.py
@@ -146,18 +180,31 @@ Open your browser to **http://localhost:5000**
 4. **Synthesis**: AI creates a literature review combining all sources
 5. **Save**: High-quality sources + synthesis saved to `data/sources/`
 
-### Option D: Knowledge Graph Analysis
+### Option D: Knowledge Graph → Article Workflow
+
+This workflow lets you create a knowledge graph, manually refine it, and generate a synthesis article:
 
 ```bash
-# Build and export knowledge graph
-python test_graph.py
+# 1. Build knowledge graph
+python build_graph.py data/graphs/my_research.ttl
+
+# 2. (Optional) Edit the TTL file manually
+#    - Add custom relationships
+#    - Adjust entity labels
+#    - Connect concepts differently
+
+# 3. Generate article from graph
+python generate_article_from_graph.py data/graphs/my_research.ttl
+
+# 4. Launch UI to chat with the generated article
+python server.py
 ```
 
-This creates:
-- `data/graphs/test_graph.ttl` - RDF graph in Turtle format
-- `data/graphs/test_ontology.ttl` - OWL ontology
+**This creates:**
+- `data/graphs/my_research.ttl` - RDF graph in Turtle format (editable!)
+- `data/sources/my_research_article.md` - AI-generated synthesis article
 
-Query with SPARQL:
+**Query with SPARQL:**
 ```python
 from core.rag_engine import VaultRAG
 
@@ -174,6 +221,11 @@ SELECT ?label WHERE {
 """
 
 results = rag.query_sparql(query)
+```
+
+**Testing (simple):**
+```bash
+python test_graph.py  # Creates test_graph.ttl and test_ontology.ttl
 ```
 
 ## 🔧 Advanced Usage
