@@ -10,14 +10,27 @@ __pycache__/
 *$py.class
 *.so
 
-# Environment variables
+# Environment variables and API keys
 .env
 .env.local
+*.env
 
-# Data directories (optional - uncomment if you want to exclude)
-# data/embeddings/
-# data/keywords/
-# data/index/
+# Data directories - exclude cache and processed files
+data/embeddings/
+data/keywords/
+data/index/
+data/processed/
+data/graphs/*.ttl
+data/graphs/*.owl
+
+# Keep only example/test files
+!data/graphs/test_graph.ttl
+!data/graphs/test_ontology.ttl
+
+# Exclude user sources (personal documents)
+data/sources/*
+!data/sources/youtube_links.txt
+!data/sources/.gitkeep
 
 # IDE
 .vscode/
@@ -31,3 +44,21 @@ Thumbs.db
 
 # Git
 .git/index.lock
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+
+# Generated content for posts
+linkedin_post.md
+linkedin_post.txt
+medium_article.md
+medium_article.txt
+
+# Test files (if you want to keep them local)
+test_*.py
+
+# copilot instructions
+--- IGNORE ---
+/.github/*
+.github/copilot-instructions.md

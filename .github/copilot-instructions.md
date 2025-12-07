@@ -19,6 +19,10 @@ This is a **Personal Knowledge Management (PKM) system** with RAG (Retrieval-Aug
 data/sources/ → VaultRAG → Embeddings Cache → Chat Responses
                   ↓
             Knowledge Graph → TTL Export → data/graphs/
+                                              ↓
+                          (Optional Edit TTL) → AI Article Generator
+                                              ↓
+                                        data/sources/*.md
 ```
 
 ### 3. No Obsidian Vault Dependency
@@ -55,7 +59,7 @@ def __init__(self, sources_dir="data/sources", verbose=False):
 ```python
 # Core modules (core/): Low-level, reusable
 # - rag_engine.py: RAG + Graph RAG (unified)
-# - document_processor.py: File processing
+# - document_processor.py: File processing (PDF/HTML/YouTube)
 # - web_discovery.py: Article extraction
 # - obsidian_api.py: Optional vault integration
 
@@ -63,6 +67,11 @@ def __init__(self, sources_dir="data/sources", verbose=False):
 # - chat.py: Chat interface wrapper
 # - research_agent.py: Multi-source research
 # - artifacts.py: Content generation
+
+# Utilities (root level): Standalone scripts
+# - build_graph.py: Build knowledge graph from sources
+# - generate_article_from_graph.py: TTL → AI article
+# - process_youtube.py: Batch YouTube transcript extraction
 
 # Server: Flask REST API only
 # - Endpoints: /api/ask, /api/stats
@@ -160,7 +169,8 @@ def _load_documents(self):
     documents = []
     sources_dir = Path(self.sources_dir)
     
-    for ext in ['.md', '.txt']:
+    # Supported extensions: .md, .txt, .pdf, .html, .htm
+    for ext in ['.md', '.txt', '.pdf', '.html', '.htm']:
         for filepath in sources_dir.glob(f'**/*{ext}'):
             try:
                 with open(filepath, 'r', encoding='utf-8') as f:
@@ -389,12 +399,25 @@ def build_knowledge_graph(self):
 # User drops files in data/sources/
 cp research.pdf data/sources/
 cp notes.md data/sources/
+cp webpage.html data/sources/
 
 # Server automatically picks them up
 python server.py
 ```
 
-### Workflow 2: Web Research
+### Workflow 2: YouTube Processing
+```bash
+# Add YouTube URLs to data/sources/youtube_links.txt
+# Then process them:
+
+# Option A: Preserve timestamps
+python process_youtube.py
+
+# Option B: AI-converted article
+python process_youtube.py --article
+```
+
+### Workflow 3: Web Research
 ```python
 # In source_discovery.ipynb
 research_topic = "AI alignment"
@@ -403,13 +426,21 @@ research_topic = "AI alignment"
 # → Extract and save
 ```
 
-### Workflow 3: Knowledge Graph
-```python
-from core.rag_engine import VaultRAG
+### Workflow 4: Knowledge Graph → Article
+```bash
+# Build knowledge graph from all sources
+python build_graph.py
 
-rag = VaultRAG()
-rag.build_knowledge_graph()
-rag.export_graph_ttl("my_knowledge.ttl")
+# (Optional) Edit the TTL file: data/graphs/knowledge_graph.ttl
+# Add/modify entities, relationships, concepts
+
+# Generate AI article from the graph
+python generate_article_from_graph.py data/graphs/knowledge_graph.ttl
+
+# Article is saved to: data/sources/knowledge_graph_article.md
+
+# Chat with everything including the synthesis
+python server.py
 ```
 
 ## Version Compatibility
@@ -418,6 +449,57 @@ rag.export_graph_ttl("my_knowledge.ttl")
 - **OpenAI**: 2.9.0+ (new client style)
 - **Flask**: 3.1.2+
 - **RDFLib**: 7.4.0+
+- **YouTube Transcript API**: 1.2.3+ (instance-based methods)
+- **BeautifulSoup**: 4.12.0+
+- **html2text**: 2024.0.0+
+
+## Key Implementation Notes
+
+### YouTube Transcript API
+```python
+# CORRECT: Instance-based API
+from youtube_transcript_api import YouTubeTranscriptApi
+
+api = YouTubeTranscriptApi()
+transcript = api.fetch(video_id)
+
+# Access transcript data via attributes (not dict keys)
+for entry in transcript:
+    timestamp = entry.start      # ✓ Attribute access
+    text = entry.text           # ✓ Attribute access
+    duration = entry.duration   # ✓ Attribute access
+    
+    # ❌ WRONG: entry['start'], entry['text']
+```
+
+### HTML Processing
+```python
+# Use BeautifulSoup + html2text for clean markdown
+from bs4 import BeautifulSoup
+import html2text
+
+soup = BeautifulSoup(html_content, 'lxml')
+h2t = html2text.HTML2Text()
+h2t.ignore_links = False
+h2t.body_width = 0
+markdown = h2t.handle(str(soup))
+```
+
+### Path Handling in Utilities
+```python
+# IMPORTANT: export_graph_ttl() handles both relative and absolute paths
+# It checks if path is absolute or starts with 'data' before prepending cache dir
+
+def export_graph_ttl(self, filename: str = None) -> str:
+    filepath = Path(filename)
+    if filepath.is_absolute() or str(filename).startswith('data'):
+        output_path = filepath  # Use as-is
+    else:
+        output_path = self.graphs_cache / filename  # Relative to cache
+    
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    self.rdf_graph.serialize(destination=str(output_path), format='turtle')
+```
 
 ## Summary
 
