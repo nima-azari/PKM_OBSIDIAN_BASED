@@ -153,24 +153,64 @@ class VaultRAG:
         if self.verbose:
             print(f"Loading documents from {self.sources_dir}...")
         
-        # Find all supported files
-        supported_extensions = ['.md', '.txt', '.pdf', '.html', '.htm']
+        # Find all supported files (only in root directory, not subdirectories)
+        supported_extensions = ['.md', '.txt', '.pdf', '.html', '.htm', '.docx']
         files = []
         for ext in supported_extensions:
-            files.extend(self.sources_dir.glob(f'**/*{ext}'))
+            # Use glob pattern to only get files in root, not subdirectories
+            files.extend(self.sources_dir.glob(f'*{ext}'))
         
-        if self.verbose:
-            print(f"Found {len(files)} files")
+        # Filter out auto-converted files and non-content files
+        filtered_files = []
+        skip_patterns = ['_files', 'saved_resource', '.js.', '.css.', '.svg', '.png', '.jpg']
         
         for filepath in files:
+            # Skip files in subdirectories with noise (js, css, images from web saves)
+            if any(pattern in str(filepath) for pattern in skip_patterns):
+                continue
+            
+            # Skip auto-converted TXT if DOCX exists
+            if filepath.suffix == '.txt':
+                docx_version = filepath.with_suffix('.docx')
+                if docx_version.exists():
+                    continue  # Skip TXT, we'll load DOCX instead
+            
+            filtered_files.append(filepath)
+        
+        if self.verbose:
+            print(f"Found {len(files)} files, filtered to {len(filtered_files)} unique documents")
+        
+        # Track loaded content to avoid duplicates
+        loaded_hashes = set()
+        
+        for filepath in filtered_files:
             try:
                 # Read content based on file type
                 if filepath.suffix == '.pdf':
                     content = self._read_pdf(filepath)
                 elif filepath.suffix in ['.html', '.htm']:
                     content = self._read_html(filepath)
+                elif filepath.suffix == '.docx':
+                    content = self._read_docx(filepath)
                 else:
                     content = filepath.read_text(encoding='utf-8', errors='ignore')
+                
+                # Skip if content is empty or too short
+                if not content or len(content.strip()) < 50:
+                    if self.verbose:
+                        print(f"  ⚠ Skipped (empty or too short): {filepath.stem}")
+                    continue
+                
+                # Generate content hash for deduplication
+                content_hash = hashlib.md5(content.encode()).hexdigest()
+                
+                # Skip if we've already loaded this exact content
+                if content_hash in loaded_hashes:
+                    if self.verbose:
+                        print(f"  ⚠ Skipped (duplicate content): {filepath.stem}")
+                    continue
+                
+                loaded_hashes.add(content_hash)
                 
                 # Create document with relative path from sources_dir
                 rel_path = str(filepath.relative_to(self.sources_dir))
@@ -188,6 +228,9 @@ class VaultRAG:
                             print(f"  Warning: Could not load cached embedding: {e}")
                 
                 self.documents.append(doc)
+                
+                if self.verbose:
+                    print(f"  ✓ Loaded: {filepath.stem}")
                 if self.verbose:
                     print(f"  ✓ Loaded: {doc.title}")
             except Exception as e:
@@ -236,6 +279,70 @@ class VaultRAG:
         except Exception as e:
             print(f"  Warning: Could not read HTML {filepath}: {e}")
             return ""
+    
+    def _read_docx(self, filepath: Path) -> str:
+        """Convert DOCX to TXT and read it."""
+        try:
+            # Convert DOCX to TXT
+            txt_path = self._convert_docx_to_txt(filepath)
+            
+            if txt_path and txt_path.exists():
+                with open(txt_path, 'r', encoding='utf-8') as f:
+                    return f.read()
+            else:
+                print(f"  Warning: Could not convert DOCX to TXT: {filepath}")
+                return ""
+        except Exception as e:
+            print(f"  Warning: Could not read DOCX {filepath}: {e}")
+            return ""
+    
+    def _convert_docx_to_txt(self, docx_path: Path) -> Optional[Path]:
+        """Convert DOCX file to TXT format."""
+        try:
+            from docx import Document as DocxDocument
+            
+            # Create TXT path in same directory
+            txt_path = docx_path.with_suffix('.txt')
+            
+            # Skip if TXT already exists and is newer
+            if txt_path.exists() and txt_path.stat().st_mtime > docx_path.stat().st_mtime:
+                if self.verbose:
+                    print(f"  Using existing TXT: {txt_path.name}")
+                return txt_path
+            
+            # Read DOCX
+            doc = DocxDocument(str(docx_path))
+            
+            # Extract text from paragraphs
+            paragraphs = [para.text for para in doc.paragraphs if para.text.strip()]
+            
+            # Extract text from tables
+            table_text = []
+            for table in doc.tables:
+                for row in table.rows:
+                    row_text = ' | '.join([cell.text.strip() for cell in row.cells])
+                    if row_text.strip():
+                        table_text.append(row_text)
+            
+            # Combine all text
+            all_text = '\n\n'.join(paragraphs)
+            if table_text:
+                all_text += '\n\n## Tables\n\n' + '\n'.join(table_text)
+            
+            # Write to TXT file
+            with open(txt_path, 'w', encoding='utf-8') as f:
+                f.write(all_text)
+            
+            if self.verbose:
+                print(f"  ✓ Converted DOCX → TXT: {txt_path.name}")
+            
+            return txt_path
+        except ImportError:
+            print(f"  Warning: python-docx not installed. Install with: pip install python-docx")
+            return None
+        except Exception as e:
+            print(f"  Warning: Could not convert DOCX {docx_path}: {e}")
+            return None
     
     def keyword_search(self, query: str, top_k: int = 5) -> List[Tuple[float, Document]]:
         """Simple keyword-based search."""
@@ -313,52 +420,294 @@ class VaultRAG:
         )
         return np.array(response.data[0].embedding)
     
-    def ask(self, question: str, model: str = "gpt-4o-mini", use_semantic: bool = False) -> Dict:
+    def _find_relevant_topics(self, query: str, query_embedding: np.ndarray, top_k: int = 3) -> List[Tuple]:
+        """
+        Find topics relevant to query using embeddings.
+        Returns list of (topic_uri, score) tuples.
+        """
+        if not RDF_AVAILABLE or len(self.rdf_graph) == 0:
+            return []
+        
+        topics = []
+        
+        # Get all TopicNode instances
+        for topic_uri in self.rdf_graph.subjects(RDF.type, self.ONTO.TopicNode):
+            # Get topic label
+            topic_label = str(self.rdf_graph.value(topic_uri, SKOS.prefLabel))
+            
+            if not topic_label or topic_label == "None":
+                continue
+            
+            # Compute similarity
+            topic_embedding = self._get_embedding(topic_label)
+            similarity = cosine_similarity([query_embedding], [topic_embedding])[0][0]
+            
+            topics.append((topic_uri, float(similarity)))
+        
+        # Sort by similarity
+        topics.sort(key=lambda x: x[1], reverse=True)
+        
+        return topics[:top_k]
+    
+    def _get_document_for_chunk(self, chunk_uri) -> Optional[Document]:
+        """Get document that contains this chunk."""
+        # Find document via hasChunk relationship
+        for doc_uri in self.rdf_graph.subjects(self.ONTO.hasChunk, chunk_uri):
+            doc_title = str(self.rdf_graph.value(doc_uri, RDFS.label))
+            # Find matching document in our loaded documents
+            for doc in self.documents:
+                if doc.title == doc_title:
+                    return doc
+        return None
+    
+    def graph_retrieval(self, query: str, top_k: int = 5) -> dict:
+        """
+        Graph-guided retrieval: query → topics → concepts → chunks.
+        
+        Returns:
+            dict with 'chunks' and 'path' (retrieval transparency)
+        """
+        if not RDF_AVAILABLE or len(self.rdf_graph) == 0:
+            if self.verbose:
+                print("  Graph not available, falling back to direct search")
+            return {"chunks": [], "path": {}}
+        
+        if self.verbose:
+            print("  Using graph-guided retrieval...")
+        
+        # Step 1: Find relevant topics
+        query_embedding = self._get_embedding(query)
+        topics = self._find_relevant_topics(query, query_embedding)
+        
+        if self.verbose:
+            print(f"    Matched {len(topics)} topics")
+        
+        if not topics:
+            return {"chunks": [], "path": {}}
+        
+        # Step 2: Get concepts under those topics
+        concepts = []
+        for topic_uri, topic_score in topics:
+            topic_concepts = list(self.rdf_graph.objects(topic_uri, self.ONTO.coversConcept))
+            for concept in topic_concepts:
+                concepts.append((concept, topic_uri, topic_score))
+        
+        if self.verbose:
+            print(f"    Found {len(concepts)} concepts under topics")
+        
+        if not concepts:
+            return {"chunks": [], "path": {"query_topics": [
+                {
+                    'uri': str(topic_uri),
+                    'label': str(self.rdf_graph.value(topic_uri, SKOS.prefLabel)),
+                    'score': float(score)
+                }
+                for topic_uri, score in topics
+            ]}}
+        
+        # Step 3: Get chunks mentioning those concepts
+        candidate_chunks = []
+        for concept_uri, topic_uri, topic_score in concepts:
+            for chunk_uri in self.rdf_graph.subjects(self.ONTO.mentionsConcept, concept_uri):
+                # Get chunk text
+                chunk_text = str(self.rdf_graph.value(chunk_uri, self.ONTO.chunkText))
+                chunk_index_val = self.rdf_graph.value(chunk_uri, self.ONTO.chunkIndex)
+                chunk_index = int(chunk_index_val) if chunk_index_val else 0
+                
+                # Get document for this chunk
+                doc = self._get_document_for_chunk(chunk_uri)
+                
+                if chunk_text and chunk_text != "None" and doc:
+                    candidate_chunks.append({
+                        'uri': chunk_uri,
+                        'text': chunk_text,
+                        'index': chunk_index,
+                        'document': doc,
+                        'via_concept': concept_uri,
+                        'via_topic': topic_uri,
+                        'topic_score': topic_score
+                    })
+        
+        if self.verbose:
+            print(f"    Retrieved {len(candidate_chunks)} candidate chunks")
+        
+        if not candidate_chunks:
+            return {"chunks": [], "path": {
+                "query_topics": [
+                    {
+                        'uri': str(topic_uri),
+                        'label': str(self.rdf_graph.value(topic_uri, SKOS.prefLabel)),
+                        'score': float(score)
+                    }
+                    for topic_uri, score in topics
+                ],
+                "matched_concepts": [
+                    {
+                        'uri': str(concept_uri),
+                        'label': str(self.rdf_graph.value(concept_uri, SKOS.prefLabel)),
+                        'via_topic': str(topic_uri)
+                    }
+                    for concept_uri, topic_uri, _ in concepts[:10]
+                ]
+            }}
+        
+        # Step 4: Rank chunks by vector similarity
+        chunk_embeddings = [self._get_embedding(c['text'][:2000]) for c in candidate_chunks]
+        similarities = cosine_similarity([query_embedding], chunk_embeddings)[0]
+        
+        for i, chunk in enumerate(candidate_chunks):
+            chunk['vector_score'] = float(similarities[i])
+            chunk['combined_score'] = (chunk['topic_score'] + chunk['vector_score']) / 2
+        
+        # Sort by combined score
+        candidate_chunks.sort(key=lambda x: x['combined_score'], reverse=True)
+        
+        # Step 5: Take top_k
+        top_chunks = candidate_chunks[:top_k]
+        
+        # Step 6: Build retrieval path for transparency
+        path_info = {
+            'query_topics': [
+                {
+                    'uri': str(topic_uri),
+                    'label': str(self.rdf_graph.value(topic_uri, SKOS.prefLabel)),
+                    'score': float(score)
+                }
+                for topic_uri, score in topics[:3]  # Top 3 topics
+            ],
+            'matched_concepts': [
+                {
+                    'uri': str(chunk['via_concept']),
+                    'label': str(self.rdf_graph.value(chunk['via_concept'], SKOS.prefLabel)),
+                    'via_topic': str(chunk['via_topic'])
+                }
+                for chunk in top_chunks
+            ],
+            'retrieved_chunks': [
+                {
+                    'uri': str(chunk['uri']),
+                    'index': chunk['index'],
+                    'document': chunk['document'].title,
+                    'combined_score': chunk['combined_score'],
+                    'via_concept': str(self.rdf_graph.value(chunk['via_concept'], SKOS.prefLabel))
+                }
+                for chunk in top_chunks
+            ],
+            'graph_edges_used': [
+                {
+                    'from': str(chunk['via_topic']),
+                    'relation': 'coversConcept',
+                    'to': str(chunk['via_concept'])
+                }
+                for chunk in top_chunks
+            ] + [
+                {
+                    'from': str(chunk['uri']),
+                    'relation': 'mentionsConcept',
+                    'to': str(chunk['via_concept'])
+                }
+                for chunk in top_chunks
+            ]
+        }
+        
+        return {
+            'chunks': top_chunks,
+            'path': path_info
+        }
+    
+    def ask(self, question: str, model: str = "gpt-4o-mini", use_semantic: bool = False, use_graph: bool = True) -> Dict:
         """
         Ask a question grounded in vault sources.
-        Returns answer with citations.
+        Uses graph-guided retrieval when available.
+        Returns answer with citations and retrieval path.
         """
         if not self.client:
             return {
                 "error": "OpenAI client not configured. Set OPENAI_API_KEY in .env",
                 "answer": None,
-                "sources": []
+                "sources": [],
+                "retrieval_path": {}
             }
         
         if self.verbose:
             print(f"\nQuestion: {question}\n")
             print("Retrieving relevant sources...")
         
-        # Retrieve relevant documents
-        if use_semantic:
-            results = self.semantic_search(question, top_k=5)
+        retrieval_path = {}
+        
+        # Try graph-guided retrieval first if enabled and graph exists
+        if use_graph and RDF_AVAILABLE and len(self.rdf_graph) > 0:
+            graph_result = self.graph_retrieval(question, top_k=5)
+            
+            if graph_result['chunks']:
+                # Use graph retrieval results
+                retrieval_path = graph_result['path']
+                context_parts = []
+                sources = []
+                
+                for i, chunk_data in enumerate(graph_result['chunks'], 1):
+                    doc = chunk_data['document']
+                    chunk_text = chunk_data['text']
+                    
+                    context_parts.append(f"\n[Source {i}: {doc.title}]")
+                    context_parts.append(f"Path: {doc.path}")
+                    context_parts.append(f"Chunk: {chunk_data['index']}")
+                    context_parts.append(f"\n{chunk_text}\n")
+                    context_parts.append("-" * 80)
+                    
+                    sources.append({
+                        "number": i,
+                        "title": doc.title,
+                        "path": doc.path,
+                        "chunk_index": chunk_data['index'],
+                        "relevance_score": chunk_data['combined_score']
+                    })
+                    
+                    if self.verbose:
+                        print(f"  [{i}] {doc.title} - Chunk {chunk_data['index']} (score: {chunk_data['combined_score']:.2f})")
+                
+                context = "\n".join(context_parts)
+            else:
+                # Graph retrieval found no results, fallback
+                if self.verbose:
+                    print("  Graph retrieval returned no results, falling back to direct search")
+                use_graph = False
         else:
-            results = self.keyword_search(question, top_k=5)
+            use_graph = False
         
-        if not results:
-            return {
-                "answer": "No relevant sources found in the vault.",
-                "sources": []
-            }
-        
-        # Build context with source numbers
-        context_parts = []
-        sources = []
-        
-        for i, (score, doc) in enumerate(results, 1):
-            context_parts.append(f"\n[Source {i}: {doc.title}]")
-            context_parts.append(f"Path: {doc.path}")
-            context_parts.append(f"\n{doc.content}\n")
-            context_parts.append("-" * 80)
+        # Fallback to traditional retrieval
+        if not use_graph:
+            if use_semantic:
+                results = self.semantic_search(question, top_k=5)
+            else:
+                results = self.keyword_search(question, top_k=5)
             
-            sources.append({
-                "title": doc.title,
-                "path": doc.path,
-                "score": float(score)
-            })
+            if not results:
+                return {
+                    "answer": "No relevant sources found in the vault.",
+                    "sources": [],
+                    "retrieval_path": {}
+                }
             
-            if self.verbose:
-                print(f"  [{i}] {doc.title} (score: {score:.2f})")
+            # Build context with source numbers
+            context_parts = []
+            sources = []
+            
+            for i, (score, doc) in enumerate(results, 1):
+                context_parts.append(f"\n[Source {i}: {doc.title}]")
+                context_parts.append(f"Path: {doc.path}")
+                context_parts.append(f"\n{doc.content}\n")
+                context_parts.append("-" * 80)
+                
+                sources.append({
+                    "number": i,
+                    "title": doc.title,
+                    "path": doc.path,
+                    "relevance_score": float(score)
+                })
+                
+                if self.verbose:
+                    print(f"  [{i}] {doc.title} (score: {score:.2f})")
         
         context = "\n".join(context_parts)
         
@@ -397,6 +746,7 @@ Provide a comprehensive answer using only the information from the sources above
             return {
                 "answer": answer,
                 "sources": sources,
+                "retrieval_path": retrieval_path,
                 "model": model
             }
         
@@ -404,7 +754,8 @@ Provide a comprehensive answer using only the information from the sources above
             return {
                 "error": f"Error generating response: {str(e)}",
                 "answer": None,
-                "sources": sources
+                "sources": sources,
+                "retrieval_path": retrieval_path
             }
     
     # === GRAPH RAG METHODS ===

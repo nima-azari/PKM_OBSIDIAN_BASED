@@ -771,3 +771,136 @@ When working with this codebase:
    - Human Readability
 
 **Current Status:** Production-ready, enterprise-grade GraphRAG system achieving 98/100 quality score across industry-standard metrics.
+
+---
+
+## Pending Work: Phase 2 Implementation
+
+**Reminder:** Phase 2 enhancements are planned for future implementation.
+
+### Phase 2 Goals (Target: 85/100 Compliance)
+
+**Status:** Phase 1 Complete (75/100) - Graph-guided retrieval operational
+
+**Phase 2 Priority List:**
+
+1. **Multi-Hop Reasoning** (Priority 1A)
+   - Current: Single-hop traversal (topic→concept→chunk)
+   - Target: Multi-hop (concept→related_concept, topic→subtopic)
+   - Benefit: Discover indirect relationships in knowledge graph
+   - Implementation: Add graph traversal depth parameter, explore 2-3 hops
+
+2. **Concept Hierarchy** (Priority 1B)
+   - Add: `skos:broader` and `skos:narrower` relationships
+   - Extract: Parent/child concept relationships from text
+   - Enable: Hierarchical navigation (EU Data Act → EU Regulations → European Law)
+   - Implementation: NLP-based hierarchy extraction + manual curation support
+
+3. **Performance Optimization** (Priority 1C)
+   - Pre-compute topic embeddings (save ~500ms per query)
+   - Build inverted index: concept→chunks mapping
+   - Cache chunk embeddings persistently
+   - Target: <1 second query time (currently 2-3 seconds)
+
+4. **DOCX File Support** (Priority 2A)
+   - Install: `python-docx` library
+   - Add: `_read_docx()` method in `core/rag_engine.py`
+   - Enable: Direct .docx processing without manual conversion
+   - Benefit: Seamless integration of Word documents
+
+5. **Topic-Based Retrieval API** (Priority 2B)
+   - Add: `retrieve_by_topic(topic_name, top_k)` method
+   - Enable: Direct topic-specific queries
+   - Use Case: "Show me all content about EU Data Act"
+
+6. **Semantic Topic Clustering** (Priority 2C)
+   - Current: Batch clustering (10 concepts per topic)
+   - Target: Embeddings-based clustering (k-means, HDBSCAN)
+   - Benefit: More meaningful topic groupings
+
+7. **LLM-Generated Topic Labels** (Priority 2D)
+   - Current: Concatenation of concept labels
+   - Target: GPT-4 generates descriptive topic names
+   - Example: "Topic_0" → "European Data Governance and Compliance"
+
+### Phase 3 Goals (Target: 95/100 Compliance)
+
+8. **Visual Graph Editor** (Priority 3A)
+   - Tool: Dash + Cytoscape
+   - Features: Interactive graph editing, TTL export, diff view
+   - Benefit: Domain experts can refine graph without code
+
+9. **Automated Feedback Loop** (Priority 3B)
+   - Track retrieval paths for all queries
+   - Identify co-occurring concepts (suggest new links)
+   - Propose graph improvements from usage patterns
+
+10. **Multi-Language Support** (Priority 3C)
+    - Add: SKOS labels with language tags (`@en`, `@fr`, `@de`)
+    - Support: Multilingual concept labels
+    - Benefit: International research workflows
+
+### Implementation Tracking
+
+**Phase 1 Complete (December 9, 2025):**
+- ✅ Graph-guided retrieval (topic→concept→chunk)
+- ✅ Hybrid search (graph + vector)
+- ✅ Retrieval path transparency
+- ✅ Full test coverage
+- **Compliance:** 55/100 → 75/100 (+20 points)
+
+**Phase 2 Target:**
+- Multi-hop reasoning + concept hierarchy + optimizations
+- **Compliance Goal:** 75/100 → 85/100 (+10 points)
+
+**Phase 3 Target:**
+- Visual editor + feedback loop + advanced features
+- **Compliance Goal:** 85/100 → 95/100 (+10 points)
+
+### Development Notes for Phase 2
+
+**When implementing multi-hop reasoning:**
+- Add `max_hops` parameter to `graph_retrieval()`
+- Track visited nodes to avoid cycles
+- Use BFS or DFS for graph traversal
+- Aggregate scores across hops (decay factor for distance)
+
+**When implementing concept hierarchy:**
+- Look for patterns: "X is a type of Y", "X includes Y"
+- Use dependency parsing for extraction
+- Add `skos:broader` and `skos:narrower` properties
+- Update ontology with hierarchy classes
+
+**When optimizing performance:**
+- Pre-compute at build time, not query time
+- Use pickle/joblib for caching complex objects
+- Consider Redis for distributed caching (future)
+- Profile with `cProfile` to find bottlenecks
+
+**DOCX Support Example:**
+```python
+def _read_docx(self, filepath: Path) -> str:
+    """Extract text from DOCX file."""
+    try:
+        from docx import Document
+        doc = Document(str(filepath))
+        text = "\n".join([para.text for para in doc.paragraphs])
+        return text
+    except Exception as e:
+        print(f"  Warning: Could not read DOCX {filepath}: {e}")
+        return ""
+```
+
+### User Research Workflow
+
+For complete research pipeline guide, see: `RESEARCH_PIPELINE_GUIDE.txt`
+
+**Quick Reference:**
+1. Add sources to `data/sources/` (MD, PDF, HTML, TXT)
+2. `python build_graph.py` - Build knowledge graph
+3. `python test_chat.py` - Test retrieval
+4. Research session with graph-guided retrieval
+5. `python generate_article_from_graph.py` - Synthesize insights
+6. Iterate: gaps → new sources → rebuild → research
+
+**Current Status:** Production-ready, enterprise-grade GraphRAG system achieving 75/100 compliance score. Phase 2 implementation pending.

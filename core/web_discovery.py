@@ -3,6 +3,7 @@ Web Discovery Agent
 
 Discovers and extracts articles from the web based on prompts.
 Uses trafilatura for high-quality content extraction.
+Supports automated search via SerpAPI (Google), arXiv, and Semantic Scholar.
 """
 
 import os
@@ -256,6 +257,149 @@ class WebDiscovery:
             'title': article['title'],
             'assessment': assessment
         }
+    
+    def search_web(self, query: str, max_results: int = 10, source: str = 'all') -> List[Dict[str, str]]:
+        """
+        Search the web using free APIs.
+        
+        Args:
+            query: Search query
+            max_results: Maximum results to return
+            source: 'all', 'arxiv', 'semantic_scholar', or 'google' (requires SERPAPI_KEY)
+        
+        Returns:
+            List of dicts with 'title', 'url', 'snippet', 'source'
+        """
+        results = []
+        
+        if source in ['all', 'arxiv']:
+            results.extend(self._search_arxiv(query, max_results))
+        
+        if source in ['all', 'semantic_scholar']:
+            results.extend(self._search_semantic_scholar(query, max_results))
+        
+        if source == 'google' and os.getenv('SERPAPI_KEY'):
+            results.extend(self._search_google(query, max_results))
+        
+        return results[:max_results]
+    
+    def _search_arxiv(self, query: str, max_results: int = 10) -> List[Dict[str, str]]:
+        """Search arXiv for academic papers (FREE)."""
+        try:
+            import urllib.parse
+            
+            encoded_query = urllib.parse.quote(query)
+            url = f"http://export.arxiv.org/api/query?search_query=all:{encoded_query}&start=0&max_results={max_results}"
+            
+            response = self.session.get(url, timeout=10)
+            
+            if response.status_code != 200:
+                return []
+            
+            # Parse XML response
+            import xml.etree.ElementTree as ET
+            root = ET.fromstring(response.content)
+            
+            results = []
+            for entry in root.findall('{http://www.w3.org/2005/Atom}entry'):
+                title = entry.find('{http://www.w3.org/2005/Atom}title').text.strip()
+                link = entry.find('{http://www.w3.org/2005/Atom}id').text.strip()
+                summary = entry.find('{http://www.w3.org/2005/Atom}summary').text.strip()
+                
+                results.append({
+                    'title': title,
+                    'url': link,
+                    'snippet': summary[:300] + '...' if len(summary) > 300 else summary,
+                    'source': 'arXiv'
+                })
+            
+            return results
+        except Exception as e:
+            print(f"  Warning: arXiv search failed: {e}")
+            return []
+    
+    def _search_semantic_scholar(self, query: str, max_results: int = 10) -> List[Dict[str, str]]:
+        """Search Semantic Scholar for academic papers (FREE)."""
+        try:
+            url = "https://api.semanticscholar.org/graph/v1/paper/search"
+            params = {
+                'query': query,
+                'limit': max_results,
+                'fields': 'title,abstract,url,authors'
+            }
+            
+            response = self.session.get(url, params=params, timeout=10)
+            
+            if response.status_code != 200:
+                print(f"  Warning: Semantic Scholar returned status {response.status_code}")
+                print(f"  Response: {response.text[:200]}")
+                return []
+            
+            data = response.json()
+            
+            if 'data' not in data:
+                print(f"  Warning: Semantic Scholar response missing 'data' field")
+                print(f"  Response keys: {list(data.keys())}")
+                return []
+            
+            results = []
+            
+            for paper in data.get('data', []):
+                # Get paper URL (prefer external URL, fallback to Semantic Scholar)
+                paper_url = paper.get('url') or f"https://www.semanticscholar.org/paper/{paper.get('paperId')}"
+                
+                abstract = paper.get('abstract', 'No abstract available')
+                snippet = abstract[:300] + '...' if len(abstract) > 300 else abstract
+                
+                results.append({
+                    'title': paper.get('title', 'Untitled'),
+                    'url': paper_url,
+                    'snippet': snippet,
+                    'source': 'Semantic Scholar'
+                })
+            
+            return results
+        except Exception as e:
+            print(f"  Warning: Semantic Scholar search failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
+    
+    def _search_google(self, query: str, max_results: int = 10) -> List[Dict[str, str]]:
+        """Search Google using SerpAPI (requires SERPAPI_KEY env var)."""
+        try:
+            api_key = os.getenv('SERPAPI_KEY')
+            if not api_key:
+                print("  Warning: SERPAPI_KEY not set. Skipping Google search.")
+                return []
+            
+            url = "https://serpapi.com/search"
+            params = {
+                'q': query,
+                'api_key': api_key,
+                'num': max_results
+            }
+            
+            response = self.session.get(url, params=params, timeout=10)
+            
+            if response.status_code != 200:
+                return []
+            
+            data = response.json()
+            results = []
+            
+            for result in data.get('organic_results', []):
+                results.append({
+                    'title': result.get('title', 'Untitled'),
+                    'url': result.get('link', ''),
+                    'snippet': result.get('snippet', 'No description'),
+                    'source': 'Google'
+                })
+            
+            return results
+        except Exception as e:
+            print(f"  Warning: Google search failed: {e}")
+            return []
 
 
 if __name__ == "__main__":

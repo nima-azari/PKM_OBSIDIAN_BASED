@@ -17,6 +17,12 @@ import html2text
 from youtube_transcript_api import YouTubeTranscriptApi
 import core.obsidian_api as obs_api
 
+try:
+    from docx import Document as DocxDocument
+    DOCX_AVAILABLE = True
+except ImportError:
+    DOCX_AVAILABLE = False
+
 
 class DocumentProcessor:
     """Process and ingest documents into vault"""
@@ -38,6 +44,8 @@ class DocumentProcessor:
             content = self._extract_text(file_path)
         elif file_path.suffix.lower() in ['.html', '.htm']:
             content = self._extract_html(file_path)
+        elif file_path.suffix.lower() == '.docx':
+            content = self._extract_docx(file_path)
         else:
             raise ValueError(f"Unsupported file type: {file_path.suffix}")
         
@@ -87,6 +95,34 @@ class DocumentProcessor:
         markdown_content = h.handle(str(soup))
         
         return markdown_content.strip()
+    
+    def _extract_docx(self, file_path: Path) -> str:
+        """Extract text from DOCX file by converting to TXT."""
+        if not DOCX_AVAILABLE:
+            raise ImportError("python-docx not installed. Install with: pip install python-docx")
+        
+        try:
+            doc = DocxDocument(str(file_path))
+            
+            # Extract text from paragraphs
+            paragraphs = [para.text for para in doc.paragraphs if para.text.strip()]
+            
+            # Extract text from tables
+            table_text = []
+            for table in doc.tables:
+                for row in table.rows:
+                    row_text = ' | '.join([cell.text.strip() for cell in row.cells])
+                    if row_text.strip():
+                        table_text.append(row_text)
+            
+            # Combine all text
+            all_text = '\n\n'.join(paragraphs)
+            if table_text:
+                all_text += '\n\n## Tables\n\n' + '\n'.join(table_text)
+            
+            return all_text.strip()
+        except Exception as e:
+            raise ValueError(f"Could not extract DOCX content: {e}")
     
     def process_youtube_url(self, url: str, tags: Optional[List[str]] = None, save_to_sources: bool = True, convert_to_article: bool = False) -> str:
         """Extract transcript from YouTube video and save to sources directory

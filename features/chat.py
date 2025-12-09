@@ -66,20 +66,57 @@ class VaultChat:
         print(f"\n💾 Conversation saved to: {filename}")
     
     def print_response(self, result: dict):
-        """Pretty print a response."""
+        """Pretty print a response with graph retrieval path."""
         if result.get('error'):
             print(f"\n❌ {result['error']}\n")
             return
         
         print(f"\n{result['answer']}\n")
         
+        # Display retrieval path if available (graph-guided retrieval)
+        if result.get('retrieval_path'):
+            path = result['retrieval_path']
+            
+            # Show topics activated
+            if path.get('query_topics'):
+                print("🔍 Graph Retrieval Path:")
+                print("\n  📊 Topics Activated:")
+                for topic in path['query_topics']:
+                    label = topic.get('label', 'Unknown')
+                    score = topic.get('score', 0)
+                    print(f"    • {label} (relevance: {score:.3f})")
+            
+            # Show concepts matched
+            if path.get('matched_concepts'):
+                print("\n  🧠 Concepts Matched:")
+                # Deduplicate concepts
+                unique_concepts = {}
+                for concept in path['matched_concepts']:
+                    uri = concept.get('uri', '')
+                    if uri not in unique_concepts:
+                        unique_concepts[uri] = concept
+                
+                for concept in list(unique_concepts.values())[:10]:  # Show top 10
+                    label = concept.get('label', 'Unknown')
+                    print(f"    • {label}")
+            
+            # Show retrieved chunks summary
+            if path.get('retrieved_chunks'):
+                print(f"\n  📄 Retrieved {len(path['retrieved_chunks'])} text chunks from knowledge graph")
+            
+            print()
+        
+        # Display sources
         if result.get('sources'):
             print("📚 Sources:")
             for src in result['sources']:
-                print(f"  [{src['number']}] {src['title']}")
+                src_num = src.get('number', '?')
+                print(f"  [{src_num}] {src['title']}")
                 print(f"      📄 {src['path']}")
+                if 'chunk_index' in src:
+                    print(f"      🔢 Chunk: {src['chunk_index']}")
                 if 'relevance_score' in src:
-                    print(f"      📊 Relevance: {src['relevance_score']:.2f}")
+                    print(f"      📊 Relevance: {src['relevance_score']:.3f}")
             print()
     
     def interactive_session(self):
@@ -88,7 +125,7 @@ class VaultChat:
         print("🤖 Obsidian Vault Chat - NotebookLM Style")
         print("=" * 80)
         print()
-        print(f"📁 Project: {self.rag.project_path}")
+        print(f"📁 Sources: {self.rag.sources_dir}")
         print(f"📚 Documents loaded: {len(self.rag.documents)}")
         print(f"🤖 Model: {self.model}")
         print()
