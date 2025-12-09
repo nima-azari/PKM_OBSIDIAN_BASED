@@ -18,6 +18,9 @@ from datetime import datetime
 from rdflib import Graph, Namespace
 from openai import OpenAI
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 class GraphArticleGenerator:
     def __init__(self, verbose=True):
@@ -27,13 +30,13 @@ class GraphArticleGenerator:
     def load_graph(self, ttl_path):
         """Load RDF graph from TTL file."""
         if self.verbose:
-            print(f"📖 Loading graph from: {ttl_path}")
+            print(f"Loading graph from: {ttl_path}")
         
         g = Graph()
         g.parse(ttl_path, format='turtle')
         
         if self.verbose:
-            print(f"✓ Loaded {len(g)} triples")
+            print(f"Loaded {len(g)} triples")
         
         return g
     
@@ -82,7 +85,7 @@ class GraphArticleGenerator:
                 })
         
         if self.verbose:
-            print(f"✓ Extracted: {len(info['documents'])} documents, {len(info['entities'])} entities, "
+            print(f"Extracted: {len(info['documents'])} documents, {len(info['entities'])} entities, "
                   f"{len(info['topics'])} topics, {len(info['relationships'])} relationships")
         
         return info
@@ -90,7 +93,7 @@ class GraphArticleGenerator:
     def generate_article(self, graph_info):
         """Generate a comprehensive article using OpenAI based on graph data."""
         if self.verbose:
-            print("🤖 Generating article with AI...")
+            print("Generating article with AI...")
         
         # Build context from graph info
         context_parts = []
@@ -166,7 +169,7 @@ Generate the article now:"""
         article = response.choices[0].message.content
         
         if self.verbose:
-            print(f"✓ Generated article ({len(article)} characters)")
+            print(f"Generated article ({len(article)} characters)")
         
         return article
     
@@ -193,7 +196,7 @@ tags: [knowledge-graph, synthesis, ai-generated]
             f.write(full_content)
         
         if self.verbose:
-            print(f"✅ Article saved to: {output_path}")
+            print(f"Article saved to: {output_path}")
         
         return output_path
 
@@ -224,7 +227,7 @@ def main():
     generator = GraphArticleGenerator(verbose=True)
     
     print("\n" + "="*60)
-    print("Knowledge Graph → Article Generator")
+    print("Knowledge Graph to Article Generator")
     print("="*60 + "\n")
     
     # Load graph
@@ -240,7 +243,7 @@ def main():
     output_file = generator.save_article(article, output_path, ttl_path)
     
     print("\n" + "="*60)
-    print(f"✅ Complete! Article saved to: {output_file}")
+    print(f"Complete! Article saved to: {output_file}")
     print("="*60 + "\n")
 
 

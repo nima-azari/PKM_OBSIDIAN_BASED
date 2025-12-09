@@ -2,39 +2,87 @@
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix sources: <http://pkm.local/sources/> .
 
-sources:Sources_Directory a onto:Document ;
-    rdfs:label "Sources Directory" ;
-    onto:mentions onto:_Add_Your_Source_Files_Here,
-        onto:_Automatic_Processing,
-        onto:_File_Naming,
-        onto:_To_Remove_Sources ;
-    onto:path "README.md" .
+sources:Cloud_and_Edge_Computing__a_different_way_of_using_IT_Brochure___Shaping_Europes_digital_futurepdf a onto:Document ;
+    rdfs:label "Cloud and Edge Computing_ a different way of using IT — Brochure _ Shaping Europe’s digital future.pdf" ;
+    onto:path "Cloud and Edge Computing_ a different way of using IT — Brochure _ Shaping Europe’s digital future.pdf" .
 
-sources:Test_Document a onto:Document ;
-    rdfs:label "Test Document" ;
-    onto:mentions onto:Cloud_Computing,
-        onto:Key_Concepts,
-        onto:Knowledge_Graphs ;
-    onto:path "test_document.md" .
+sources:Cloud_switching_under_the_EU_Data_Actpdf a onto:Document ;
+    rdfs:label "Cloud switching under the EU Data Act.pdf" ;
+    onto:path "Cloud switching under the EU Data Act.pdf" .
 
-onto:Cloud_Computing a onto:Concept ;
-    rdfs:label "Cloud Computing" .
+sources:Knowledge_Graphs__Redefining_Data_Management_for_the_Modern_Enterprisepdf a onto:Document ;
+    rdfs:label "Knowledge Graphs_ Redefining Data Management for the Modern Enterprise.pdf" ;
+    onto:path "Knowledge Graphs_ Redefining Data Management for the Modern Enterprise.pdf" .
 
-onto:Key_Concepts a onto:Concept ;
-    rdfs:label "Key Concepts" .
+sources:RDF_Levels_the_Advantages_of_Labeled_Property_Graphs_Keeps_Three_Key_Benefits__Standards_Semantics_Interoperability___Ontotext_filesf1txt a onto:Document ;
+    rdfs:label "RDF Levels the Advantages of Labeled Property Graphs & Keeps Three Key Benefits_ Standards, Semantics & Interoperability _ Ontotext_files\\f(1).txt" ;
+    onto:path "RDF Levels the Advantages of Labeled Property Graphs & Keeps Three Key Benefits_ Standards, Semantics & Interoperability _ Ontotext_files\\f(1).txt" .
 
-onto:Knowledge_Graphs a onto:Concept ;
-    rdfs:label "Knowledge Graphs" .
+sources:RDF_Levels_the_Advantages_of_Labeled_Property_Graphs_Keeps_Three_Key_Benefits__Standards_Semantics_Interoperability___Ontotext_filesf2txt a onto:Document ;
+    rdfs:label "RDF Levels the Advantages of Labeled Property Graphs & Keeps Three Key Benefits_ Standards, Semantics & Interoperability _ Ontotext_files\\f(2).txt" ;
+    onto:path "RDF Levels the Advantages of Labeled Property Graphs & Keeps Three Key Benefits_ Standards, Semantics & Interoperability _ Ontotext_files\\f(2).txt" .
 
-onto:_Add_Your_Source_Files_Here a onto:Concept ;
-    rdfs:label "📁 Add Your Source Files Here" .
+sources:RDF_Levels_the_Advantages_of_Labeled_Property_Graphs_Keeps_Three_Key_Benefits__Standards_Semantics_Interoperability___Ontotext_filesftxt a onto:Document ;
+    rdfs:label "RDF Levels the Advantages of Labeled Property Graphs & Keeps Three Key Benefits_ Standards, Semantics & Interoperability _ Ontotext_files\\f.txt" ;
+    onto:path "RDF Levels the Advantages of Labeled Property Graphs & Keeps Three Key Benefits_ Standards, Semantics & Interoperability _ Ontotext_files\\f.txt" .
 
-onto:_Automatic_Processing a onto:Concept ;
-    rdfs:label "🔄 Automatic Processing" .
+sources:RDF_Levels_the_Advantages_of_Labeled_Property_Graphs_Keeps_Three_Key_Benefits__Standards_Semantics_Interoperability___Ontotext_filessaved_resource1html a onto:Document ;
+    rdfs:label "RDF Levels the Advantages of Labeled Property Graphs & Keeps Three Key Benefits_ Standards, Semantics & Interoperability _ Ontotext_files\\saved_resource(1).html" ;
+    onto:path "RDF Levels the Advantages of Labeled Property Graphs & Keeps Three Key Benefits_ Standards, Semantics & Interoperability _ Ontotext_files\\saved_resource(1).html" .
 
-onto:_File_Naming a onto:Concept ;
-    rdfs:label "📝 File Naming" .
+sources:RDF_Levels_the_Advantages_of_Labeled_Property_Graphs_Keeps_Three_Key_Benefits__Standards_Semantics_Interoperability___Ontotext_filessaved_resource2html a onto:Document ;
+    rdfs:label "RDF Levels the Advantages of Labeled Property Graphs & Keeps Three Key Benefits_ Standards, Semantics & Interoperability _ Ontotext_files\\saved_resource(2).html" ;
+    onto:path "RDF Levels the Advantages of Labeled Property Graphs & Keeps Three Key Benefits_ Standards, Semantics & Interoperability _ Ontotext_files\\saved_resource(2).html" .
 
-onto:_To_Remove_Sources a onto:Concept ;
-    rdfs:label "🗑️ To Remove Sources" .
+sources:RDF_Levels_the_Advantages_of_Labeled_Property_Graphs_Keeps_Three_Key_Benefits__Standards_Semantics_Interoperability___Ontotext_filessaved_resourcehtml a onto:Document ;
+    rdfs:label "RDF Levels the Advantages of Labeled Property Graphs & Keeps Three Key Benefits_ Standards, Semantics & Interoperability _ Ontotext_files\\saved_resource.html" ;
+    onto:path "RDF Levels the Advantages of Labeled Property Graphs & Keeps Three Key Benefits_ Standards, Semantics & Interoperability _ Ontotext_files\\saved_resource.html" .
+
+sources:RDF_Levels_the_Advantages_of_Labeled_Property_Graphs_Keeps_Three_Key_Benefits__Standards_Semantics_Interoperability___Ontotext_filessm25html a onto:Document ;
+    rdfs:label "RDF Levels the Advantages of Labeled Property Graphs & Keeps Three Key Benefits_ Standards, Semantics & Interoperability _ Ontotext_files\\sm.25.html" ;
+    onto:path "RDF Levels the Advantages of Labeled Property Graphs & Keeps Three Key Benefits_ Standards, Semantics & Interoperability _ Ontotext_files\\sm.25.html" .
+
+sources:RDF_Levels_the_Advantages_of_Labeled_Property_Graphs_Keeps_Three_Key_Benefits__Standards_Semantics_Interoperability___Ontotexthtml a onto:Document ;
+    rdfs:label "RDF Levels the Advantages of Labeled Property Graphs & Keeps Three Key Benefits_ Standards, Semantics & Interoperability _ Ontotext.html" ;
+    onto:path "RDF Levels the Advantages of Labeled Property Graphs & Keeps Three Key Benefits_ Standards, Semantics & Interoperability _ Ontotext.html" .
+
+sources:The_EU_Data_Act_explained__rights_obligations_and_challenges_for_data_holders_and_manufacturerspdf a onto:Document ;
+    rdfs:label "The EU Data Act explained_ rights, obligations and challenges for data holders and manufacturers.pdf" ;
+    onto:path "The EU Data Act explained_ rights, obligations and challenges for data holders and manufacturers.pdf" .
+
+sources:YouTube-8nbb6CwpPMA a onto:Document ;
+    rdfs:label "YouTube-8nbb6CwpPMA" ;
+    onto:hasTag onto:transcript,
+        onto:video,
+        onto:youtube ;
+    onto:mentions onto:Presentation_by_Atanas_Kirakov,
+        onto:Welcome_to_the_OntoText_Webinar ;
+    onto:path "YouTube-8nbb6CwpPMA.md" .
+
+sources:YouTube_Links_to_Process a onto:Document ;
+    rdfs:label "YouTube Links to Process" ;
+    onto:path "youtube_links.txt" .
+
+sources:node_12633_printable_pdfpdf a onto:Document ;
+    rdfs:label "node_12633_printable_pdf.pdf" ;
+    onto:path "node_12633_printable_pdf.pdf" .
+
+sources:tr_104410v010101ppdf a onto:Document ;
+    rdfs:label "tr_104410v010101p.pdf" ;
+    onto:path "tr_104410v010101p.pdf" .
+
+onto:Presentation_by_Atanas_Kirakov a onto:Concept ;
+    rdfs:label "Presentation by Atanas Kirakov" .
+
+onto:Welcome_to_the_OntoText_Webinar a onto:Concept ;
+    rdfs:label "Welcome to the OntoText Webinar" .
+
+onto:transcript a onto:Tag ;
+    rdfs:label "transcript" .
+
+onto:video a onto:Tag ;
+    rdfs:label "video" .
+
+onto:youtube a onto:Tag ;
+    rdfs:label "youtube" .
 

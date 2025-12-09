@@ -112,38 +112,118 @@ https://www.youtube.com/watch?v=VIDEO_ID_2
 - **Timestamp mode** (default): Preserves `[MM:SS]` timestamps for each line
 - **Article mode** (`--article` flag): AI converts to structured article with headings, cleaned grammar, and continuous text
 
-### 4. (Optional) Generate Knowledge Graph & Article
+### 4. (Optional) Build Knowledge Graph with GraphRAG Support
 
-Before launching the UI, you can create a knowledge graph and generate a synthesis article:
+**⚠️ Note:** This is an **advanced feature** for researchers who want semantic graph navigation and multi-layered knowledge representation. The basic chat functionality works without this step.
+
+The system supports a **three-layer semantic model** for knowledge graphs:
+
+1. **Domain Layer**: Real-world concepts (Building, Regulation, Energy Label, etc.)
+2. **Topic Layer**: Human-understandable topics/domain areas for navigation
+3. **Information Layer**: Documents, chunks, and evidence
+
+#### Quick Start (Simple Mode)
 
 ```bash
-# Step 1: Build knowledge graph from all sources
+# Generate basic knowledge graph from all sources
 python build_graph.py
 
-# This creates: data/graphs/knowledge_graph.ttl
+# This creates:
+# - data/graphs/knowledge_graph.ttl (RDF instances)
+# - data/graphs/ontology.ttl (schema definitions)
 ```
 
-**Optional: Manually edit the TTL file** to customize concepts and relationships.
+#### Advanced Mode (Semantic Layers)
+
+For researchers who need structured topic navigation and graph editing:
 
 ```bash
-# Step 2: Generate article from the graph
-python generate_article_from_graph.py data/graphs/knowledge_graph.ttl
+# Step 1: Build graph with ontology + instances
+python build_graph.py --mode advanced
+
+# This creates:
+# - ontology.ttl: Schema (DomainConcept, TopicNode, Document, Chunk classes)
+# - instances.ttl: Data (actual concepts, topics, documents, chunks)
+```
+
+**What this generates:**
+
+- **Domain Concepts** (`ex:DomainConcept`):
+  - Real-world concepts extracted from documents
+  - Hierarchies via `skos:broader` / `skos:narrower`
+  - Alternative labels via `skos:altLabel`
+
+- **Topic Nodes** (`ex:TopicNode`):
+  - Human topics/domain areas for GraphRAG navigation
+  - Cover concepts via `ex:coversConcept`
+  - Related topics via `skos:related`
+
+- **Documents & Chunks** (`ex:Document`, `ex:Chunk`):
+  - Text chunks linked to concepts via `ex:mentionsConcept`
+  - Full document metadata (title, creator, source path)
+
+#### Manual Editing & Graph UI
+
+**Option A: Edit TTL files directly**
+
+```bash
+# Edit the generated instances.ttl to:
+# - Rename topics/concepts (change skos:prefLabel)
+# - Adjust hierarchies (skos:broader/narrower)
+# - Connect topics to concepts (ex:coversConcept)
+# - Add definitions (skos:definition)
+```
+
+**Option B: Use Interactive Graph Editor (Dash + Cytoscape)**
+
+```bash
+# Launch graph editor UI
+python graph_editor.py
+
+# Features:
+# - Visual graph of topics + concepts
+# - Click to rename topics/concepts
+# - Drag-and-drop to assign concepts to topics
+# - Add/remove relationships
+# - Save changes back to TTL (graph_updated.ttl)
+```
+
+#### GraphRAG Integration
+
+The graph supports **graph-based retrieval**:
+
+```python
+from core.rag_engine import VaultRAG
+
+rag = VaultRAG()
+rag.build_knowledge_graph()
+
+# GraphRAG retrieval flow:
+# User query → Topic nodes → Domain concepts → Chunks → Documents
+# Embeddings computed for topics, concepts, and chunks
+```
+
+**Retrieval steps:**
+1. Encode user query
+2. Retrieve nearest topic(s) and/or concept(s)
+3. Expand through graph: Topic → concepts → chunks
+4. Feed both text + graph context to LLM
+
+#### Generate Synthesis Article (Optional)
+
+After building the graph, you can generate an AI article:
+
+```bash
+# Generate article from knowledge graph
+python generate_article_from_graph.py data/graphs/instances.ttl
 
 # This creates: data/sources/knowledge_graph_article.md
 ```
 
-**What this does:**
-- Analyzes all documents in `data/sources/`
-- Extracts entities (people, organizations, locations)
-- Identifies topics and relationships
-- Creates an RDF knowledge graph (TTL format)
-- Generates a comprehensive synthesis article using AI
-- Saves the article back to `data/sources/` for chat queries
-
-**Custom output paths:**
+**Custom paths:**
 ```bash
-python build_graph.py data/graphs/my_research.ttl
-python generate_article_from_graph.py data/graphs/my_research.ttl my_synthesis.md
+python build_graph.py data/graphs/my_research_instances.ttl
+python generate_article_from_graph.py data/graphs/my_research_instances.ttl my_synthesis.md
 ```
 
 ### 5. Launch the UI

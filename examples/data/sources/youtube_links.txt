@@ -1,0 +1,7 @@
+# Example YouTube Links
+
+# Add YouTube URLs here (one per line)
+# https://www.youtube.com/watch?v=VIDEO_ID
+
+# Then run:
+# python process_youtube.py --sources examples/data/sources/
