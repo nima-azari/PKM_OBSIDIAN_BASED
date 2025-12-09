@@ -409,8 +409,17 @@ Provide a comprehensive answer using only the information from the sources above
     
     # === GRAPH RAG METHODS ===
     
-    def build_knowledge_graph(self) -> int:
-        """Build RDF graph from loaded documents"""
+    def build_knowledge_graph(self, enable_chunking: bool = True, enable_topics: bool = False) -> int:
+        """
+        Build RDF graph from loaded documents with full semantic model.
+        
+        Args:
+            enable_chunking: Split documents into chunks (Information Layer)
+            enable_topics: Auto-generate topic nodes from clustering (Topic Layer)
+        
+        Returns:
+            Number of triples created
+        """
         if not RDF_AVAILABLE:
             if self.verbose:
                 print("Warning: RDF libraries not available. Install rdflib and networkx.")
@@ -418,21 +427,261 @@ Provide a comprehensive answer using only the information from the sources above
         
         if self.verbose:
             print(f"Building knowledge graph from {len(self.documents)} documents...")
+            print(f"  Chunking: {'enabled' if enable_chunking else 'disabled'}")
+            print(f"  Topic extraction: {'enabled' if enable_topics else 'disabled'}")
         
+        # Process each document
         for doc in self.documents:
-            self._add_document_to_graph(doc)
+            if enable_chunking:
+                self._add_document_with_chunks(doc)
+            else:
+                self._add_document_to_graph(doc)  # Legacy method
         
         # Extract relationships (wikilinks)
         for doc in self.documents:
             self._extract_relationships(doc)
+        
+        # Auto-generate topics if enabled
+        if enable_topics:
+            self._generate_topics()
         
         if self.verbose:
             print(f"Graph built: {len(self.rdf_graph)} triples")
         
         return len(self.rdf_graph)
     
+    def _add_document_with_chunks(self, doc: Document):
+        """Add document with full semantic model: chunks, domain concepts, metadata"""
+        # Create URI for document
+        doc_uri = self.NS[self._sanitize_uri(doc.title)]
+        
+        # === Document metadata ===
+        self.rdf_graph.add((doc_uri, RDF.type, self.ONTO.Document))
+        self.rdf_graph.add((doc_uri, RDFS.label, Literal(doc.title)))
+        self.rdf_graph.add((doc_uri, self.ONTO.path, Literal(doc.path)))
+        
+        # Add source format
+        source_format = self._detect_format(doc.path)
+        if source_format:
+            self.rdf_graph.add((doc_uri, self.ONTO.sourceFormat, Literal(source_format)))
+        
+        # Extract frontmatter
+        frontmatter = self._extract_frontmatter(doc.content)
+        
+        # Add DCT metadata if available
+        if 'title' in frontmatter:
+            self.rdf_graph.add((doc_uri, DCTERMS.title, Literal(frontmatter['title'])))
+        if 'author' in frontmatter:
+            self.rdf_graph.add((doc_uri, DCTERMS.creator, Literal(frontmatter['author'])))
+        if 'date' in frontmatter or 'created' in frontmatter:
+            date_val = frontmatter.get('date') or frontmatter.get('created')
+            self.rdf_graph.add((doc_uri, DCTERMS.created, Literal(date_val)))
+        
+        # Add tags
+        for tag in frontmatter.get('tags', []):
+            tag_uri = self.ONTO[self._sanitize_uri(tag)]
+            self.rdf_graph.add((doc_uri, self.ONTO.hasTag, tag_uri))
+            self.rdf_graph.add((tag_uri, RDF.type, self.ONTO.Tag))
+            self.rdf_graph.add((tag_uri, RDFS.label, Literal(tag)))
+        
+        # === Chunking ===
+        chunks = self._split_into_chunks(doc.content)
+        domain_concepts = set()  # Collect concepts from this document
+        
+        for i, chunk_text in enumerate(chunks):
+            chunk_uri = self.NS[f"{self._sanitize_uri(doc.title)}_chunk_{i}"]
+            
+            # Chunk instance
+            self.rdf_graph.add((chunk_uri, RDF.type, self.ONTO.Chunk))
+            self.rdf_graph.add((chunk_uri, self.ONTO.chunkIndex, Literal(i)))
+            self.rdf_graph.add((chunk_uri, self.ONTO.chunkText, Literal(chunk_text)))
+            
+            # Link chunk to document
+            self.rdf_graph.add((doc_uri, self.ONTO.hasChunk, chunk_uri))
+            
+            # Extract domain concepts from chunk
+            concepts = self._extract_domain_concepts(chunk_text)
+            for concept_label in concepts:
+                concept_uri = self.ONTO[self._sanitize_uri(concept_label)]
+                
+                # Create DomainConcept if not exists
+                if (concept_uri, RDF.type, self.ONTO.DomainConcept) not in self.rdf_graph:
+                    self.rdf_graph.add((concept_uri, RDF.type, self.ONTO.DomainConcept))
+                    self.rdf_graph.add((concept_uri, SKOS.prefLabel, Literal(concept_label)))
+                
+                # Link chunk to concept
+                self.rdf_graph.add((chunk_uri, self.ONTO.mentionsConcept, concept_uri))
+                domain_concepts.add(concept_uri)
+        
+        # === Legacy: Extract concepts from headings (backward compatibility) ===
+        for section in doc.sections:
+            heading = section.get('heading', '')
+            if heading and heading != "Introduction":
+                concept_uri = self.ONTO[self._sanitize_uri(heading)]
+                # Use DomainConcept instead of Concept
+                if (concept_uri, RDF.type, self.ONTO.DomainConcept) not in self.rdf_graph:
+                    self.rdf_graph.add((concept_uri, RDF.type, self.ONTO.DomainConcept))
+                    self.rdf_graph.add((concept_uri, SKOS.prefLabel, Literal(heading)))
+                # Also add legacy mentions for backward compatibility
+                self.rdf_graph.add((doc_uri, self.ONTO.mentions, concept_uri))
+        
+        # Add to NetworkX graph
+        self.nx_graph.add_node(doc.title)
+    
+    def _split_into_chunks(self, text: str, chunk_size: int = 500) -> List[str]:
+        """
+        Split text into chunks for semantic processing.
+        
+        Args:
+            text: Full document text
+            chunk_size: Approximate number of tokens per chunk
+        
+        Returns:
+            List of text chunks
+        """
+        # Remove frontmatter
+        if text.startswith('---'):
+            parts = text.split('---', 2)
+            if len(parts) >= 3:
+                text = parts[2]
+        
+        # Split by paragraphs first
+        paragraphs = text.split('\n\n')
+        
+        chunks = []
+        current_chunk = []
+        current_length = 0
+        
+        for para in paragraphs:
+            para = para.strip()
+            if not para:
+                continue
+            
+            # Rough token count (words * 1.3)
+            para_tokens = len(para.split()) * 1.3
+            
+            if current_length + para_tokens > chunk_size and current_chunk:
+                # Save current chunk
+                chunks.append('\n\n'.join(current_chunk))
+                current_chunk = [para]
+                current_length = para_tokens
+            else:
+                current_chunk.append(para)
+                current_length += para_tokens
+        
+        # Add remaining chunk
+        if current_chunk:
+            chunks.append('\n\n'.join(current_chunk))
+        
+        return chunks if chunks else [text[:1000]]  # Fallback: at least one chunk
+    
+    def _extract_domain_concepts(self, text: str) -> List[str]:
+        """
+        Extract domain concepts from text chunk.
+        Uses simple heuristics: capitalized phrases, noun phrases from headings.
+        
+        For production, this could use NER or LLM-based extraction.
+        """
+        concepts = []
+        
+        # Extract markdown headings
+        heading_pattern = r'^#{1,6}\s+(.+)$'
+        for match in re.finditer(heading_pattern, text, re.MULTILINE):
+            heading = match.group(1).strip()
+            if len(heading) > 3 and heading != "Introduction":
+                concepts.append(heading)
+        
+        # Extract capitalized phrases (2-4 words, basic heuristic)
+        cap_pattern = r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})\b'
+        for match in re.finditer(cap_pattern, text):
+            phrase = match.group(1)
+            # Filter common words
+            if not any(word in phrase.lower() for word in ['the', 'this', 'that', 'with', 'from']):
+                if len(phrase) > 5:  # Minimum length
+                    concepts.append(phrase)
+        
+        # Deduplicate
+        return list(set(concepts))[:10]  # Limit to top 10 concepts per chunk
+    
+    def _detect_format(self, path: str) -> str:
+        """Detect MIME type from file extension"""
+        ext = Path(path).suffix.lower()
+        format_map = {
+            '.md': 'text/markdown',
+            '.txt': 'text/plain',
+            '.pdf': 'application/pdf',
+            '.html': 'text/html',
+            '.htm': 'text/html'
+        }
+        return format_map.get(ext, 'application/octet-stream')
+    
+    def _generate_topics(self):
+        """
+        Auto-generate TopicNode instances from clustering DomainConcepts.
+        This is a basic implementation - production would use embeddings + clustering.
+        """
+        if self.verbose:
+            print("  Generating topic nodes from domain concepts...")
+        
+        # Get all domain concepts
+        concepts = list(self.rdf_graph.subjects(RDF.type, self.ONTO.DomainConcept))
+        
+        if len(concepts) < 3:
+            if self.verbose:
+                print("    Not enough concepts for topic generation")
+            return
+        
+        # Simple grouping: one topic per 5-10 concepts
+        # In production, use embeddings + k-means clustering
+        topic_size = min(10, max(5, len(concepts) // 3))
+        
+        for i, concept_batch in enumerate([concepts[j:j+topic_size] 
+                                           for j in range(0, len(concepts), topic_size)]):
+            topic_uri = self.ONTO[f"topic_{i}"]
+            
+            # Get concept labels for topic naming
+            labels = []
+            for concept in concept_batch[:3]:  # First 3 concepts
+                for label in self.rdf_graph.objects(concept, SKOS.prefLabel):
+                    # Clean label: remove line breaks and extra whitespace
+                    clean_label = str(label).replace('\n', ' ').replace('\r', ' ').strip()
+                    clean_label = ' '.join(clean_label.split())  # Normalize whitespace
+                    labels.append(clean_label)
+            
+            # Create readable topic label (max 80 chars)
+            topic_label = f"Topic: {', '.join(labels[:2])}"
+            if len(topic_label) > 80:
+                topic_label = topic_label[:77] + "..."
+            
+            topic_def = f"Auto-generated topic covering {len(concept_batch)} domain concepts"
+            
+            # Add descriptive comment
+            concept_names = ', '.join(labels[:5])
+            if len(labels) > 5:
+                concept_names += f" (and {len(labels)-5} more)"
+            topic_comment = f"Clusters concepts: {concept_names}"
+            
+            # Create TopicNode
+            self.rdf_graph.add((topic_uri, RDF.type, self.ONTO.TopicNode))
+            self.rdf_graph.add((topic_uri, SKOS.prefLabel, Literal(topic_label)))
+            self.rdf_graph.add((topic_uri, SKOS.definition, Literal(topic_def)))
+            self.rdf_graph.add((topic_uri, RDFS.comment, Literal(topic_comment)))
+            
+            # Link topic to concepts
+            for concept in concept_batch:
+                self.rdf_graph.add((topic_uri, self.ONTO.coversConcept, concept))
+            
+            # Link topic to chunks that mention these concepts
+            for concept in concept_batch:
+                for chunk in self.rdf_graph.subjects(self.ONTO.mentionsConcept, concept):
+                    self.rdf_graph.add((topic_uri, self.ONTO.coversChunk, chunk))
+        
+        if self.verbose:
+            topics_count = len(list(self.rdf_graph.subjects(RDF.type, self.ONTO.TopicNode)))
+            print(f"    Created {topics_count} topic nodes")
+    
     def _add_document_to_graph(self, doc: Document):
-        """Add document as RDF resource"""
+        """Legacy: Add document as RDF resource (backward compatibility)"""
         # Create URI for document
         doc_uri = self.NS[self._sanitize_uri(doc.title)]
         
@@ -538,7 +787,7 @@ Provide a comprehensive answer using only the information from the sources above
             return []
     
     def export_graph_ttl(self, filename: str = None) -> str:
-        """Export RDF graph to TTL file"""
+        """Export RDF graph to TTL file with human-readable section comments"""
         if self.rdf_graph is None:
             if self.verbose:
                 print("Warning: RDF graph not available")
@@ -549,6 +798,7 @@ Provide a comprehensive answer using only the information from the sources above
         
         # Check if filename is already a full path
         from pathlib import Path
+        from datetime import datetime
         filepath = Path(filename)
         if filepath.is_absolute() or str(filename).startswith('data'):
             output_path = filepath
@@ -558,7 +808,45 @@ Provide a comprehensive answer using only the information from the sources above
         # Ensure parent directory exists
         output_path.parent.mkdir(parents=True, exist_ok=True)
         
-        self.rdf_graph.serialize(destination=str(output_path), format='turtle')
+        # Serialize to string first to add comments
+        ttl_content = self.rdf_graph.serialize(format='turtle')
+        
+        # Get statistics for header
+        stats = self.get_graph_stats()
+        
+        # Add human-readable header with section guide
+        header = f"""# Knowledge Graph Export
+# Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+# 
+# Graph Statistics:
+#   - Documents: {stats.get('documents', 0)}
+#   - Chunks: {stats.get('chunks', 0)}
+#   - Domain Concepts: {stats.get('domain_concepts', 0)}
+#   - Topic Nodes: {stats.get('topic_nodes', 0)}
+#   - Total Triples: {stats.get('total_triples', 0)}
+# 
+# Structure Guide:
+#   1. Topic Nodes (onto:TopicNode) - Navigation layer organizing concepts
+#   2. Documents (onto:Document) - Source files with metadata
+#   3. Chunks (onto:Chunk) - Text segments from documents
+#   4. Domain Concepts (onto:DomainConcept) - Knowledge entities
+#   5. Tags (onto:Tag) - Document categorization
+# 
+# Relationships:
+#   - onto:hasChunk: Document → Chunk (1-to-many)
+#   - onto:mentionsConcept: Chunk → DomainConcept (many-to-many)
+#   - onto:coversConcept: TopicNode → DomainConcept (many-to-many)
+#   - onto:coversChunk: TopicNode → Chunk (many-to-many)
+# 
+# For more information, see: README.md
+#
+
+"""
+        
+        # Write combined content
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(header)
+            f.write(ttl_content)
         
         if self.verbose:
             print(f"Exported graph to {output_path}")
@@ -706,8 +994,20 @@ Provide a comprehensive answer using only the information from the sources above
         # Count by type
         docs_count = len(list(self.rdf_graph.subjects(RDF.type, self.ONTO.Document)))
         tags_count = len(list(self.rdf_graph.subjects(RDF.type, self.ONTO.Tag)))
+        
+        # New semantic model counts
+        chunks_count = len(list(self.rdf_graph.subjects(RDF.type, self.ONTO.Chunk)))
+        domain_concepts_count = len(list(self.rdf_graph.subjects(RDF.type, self.ONTO.DomainConcept)))
+        topics_count = len(list(self.rdf_graph.subjects(RDF.type, self.ONTO.TopicNode)))
+        
+        # Legacy counts
         concepts_count = len(list(self.rdf_graph.subjects(RDF.type, self.ONTO.Concept)))
         links_count = len(list(self.rdf_graph.triples((None, self.ONTO.linksTo, None))))
+        
+        # Relationship counts
+        mentions_count = len(list(self.rdf_graph.triples((None, self.ONTO.mentionsConcept, None))))
+        covers_concepts_count = len(list(self.rdf_graph.triples((None, self.ONTO.coversConcept, None))))
+        covers_chunks_count = len(list(self.rdf_graph.triples((None, self.ONTO.coversChunk, None))))
         
         # NetworkX stats
         try:
@@ -715,17 +1015,25 @@ Provide a comprehensive answer using only the information from the sources above
         except:
             avg_degree = 0
         
-        return {
+        stats = {
             'available': True,
             'total_triples': len(self.rdf_graph),
             'documents': docs_count,
+            'chunks': chunks_count,
+            'domain_concepts': domain_concepts_count,
+            'topic_nodes': topics_count,
             'tags': tags_count,
-            'concepts': concepts_count,
+            'concepts': concepts_count,  # Legacy
             'links': links_count,
+            'chunk_mentions': mentions_count,
+            'topic_covers_concepts': covers_concepts_count,
+            'topic_covers_chunks': covers_chunks_count,
             'nodes': len(self.nx_graph.nodes()),
             'edges': len(self.nx_graph.edges()),
             'avg_degree': round(avg_degree, 2)
         }
+        
+        return stats
     
     # === END GRAPH RAG METHODS ===
     

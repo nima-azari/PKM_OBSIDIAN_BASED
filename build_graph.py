@@ -35,7 +35,9 @@ def main():
     rag = VaultRAG(sources_dir="data/sources", verbose=True)
     
     print("\n🔗 Building knowledge graph...")
-    num_triples = rag.build_knowledge_graph()
+    print("  Chunking: enabled")
+    print("  Topic extraction: enabled")
+    num_triples = rag.build_knowledge_graph(enable_chunking=True, enable_topics=True)
     
     print(f"\n✓ Created {num_triples} triples")
     
