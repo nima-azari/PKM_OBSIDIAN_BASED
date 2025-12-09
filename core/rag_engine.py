@@ -29,6 +29,7 @@ except ImportError:
 
 try:
     from rdflib import Graph, Namespace, RDF, RDFS, OWL, Literal, URIRef
+    from rdflib.namespace import SKOS, DCTERMS
     import networkx as nx
     RDF_AVAILABLE = True
 except ImportError:
@@ -125,6 +126,9 @@ class VaultRAG:
             self.rdf_graph.bind("sources", self.NS)
             self.rdf_graph.bind("onto", self.ONTO)
             self.rdf_graph.bind("owl", OWL)
+            self.rdf_graph.bind("skos", SKOS)
+            self.rdf_graph.bind("dct", DCTERMS)
+            self.rdf_graph.bind("rdfs", RDFS)
         
         if OPENAI_AVAILABLE and os.getenv('OPENAI_API_KEY'):
             self.client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
@@ -562,7 +566,7 @@ Provide a comprehensive answer using only the information from the sources above
         return str(output_path)
     
     def create_ontology(self, filename: str = None) -> str:
-        """Create custom ontology file"""
+        """Create ontology file with full semantic model (DomainConcept, TopicNode, Chunk)"""
         if not RDF_AVAILABLE:
             if self.verbose:
                 print("Warning: RDF libraries not available")
@@ -574,18 +578,103 @@ Provide a comprehensive answer using only the information from the sources above
         onto_graph = Graph()
         onto_graph.bind("onto", self.ONTO)
         onto_graph.bind("owl", OWL)
+        onto_graph.bind("skos", SKOS)
+        onto_graph.bind("dct", DCTERMS)
+        onto_graph.bind("rdfs", RDFS)
         
-        # Define classes
+        # ===== CLASSES =====
+        
+        # Document class
         onto_graph.add((self.ONTO.Document, RDF.type, OWL.Class))
+        onto_graph.add((self.ONTO.Document, RDFS.subClassOf, DCTERMS.BibliographicResource))
         onto_graph.add((self.ONTO.Document, RDFS.label, Literal("Document")))
+        onto_graph.add((self.ONTO.Document, RDFS.comment, 
+                       Literal("A source document such as Markdown, PDF, or HTML.")))
         
+        # Chunk class (Information Layer)
+        onto_graph.add((self.ONTO.Chunk, RDF.type, OWL.Class))
+        onto_graph.add((self.ONTO.Chunk, RDFS.label, Literal("Chunk")))
+        onto_graph.add((self.ONTO.Chunk, RDFS.comment,
+                       Literal("A text span extracted from a document for retrieval and annotation.")))
+        
+        # DomainConcept class (Domain Layer)
+        onto_graph.add((self.ONTO.DomainConcept, RDF.type, OWL.Class))
+        onto_graph.add((self.ONTO.DomainConcept, RDFS.subClassOf, SKOS.Concept))
+        onto_graph.add((self.ONTO.DomainConcept, RDFS.label, Literal("Domain Concept")))
+        onto_graph.add((self.ONTO.DomainConcept, RDFS.comment,
+                       Literal("Real-world or domain-level concept represented in the knowledge graph.")))
+        
+        # TopicNode class (Topic Layer)
+        onto_graph.add((self.ONTO.TopicNode, RDF.type, OWL.Class))
+        onto_graph.add((self.ONTO.TopicNode, RDFS.subClassOf, SKOS.Concept))
+        onto_graph.add((self.ONTO.TopicNode, RDFS.label, Literal("Topic Node")))
+        onto_graph.add((self.ONTO.TopicNode, RDFS.comment,
+                       Literal("A topic or domain area summarising a set of domain concepts and supporting documents.")))
+        
+        # Legacy classes (for backward compatibility)
         onto_graph.add((self.ONTO.Concept, RDF.type, OWL.Class))
         onto_graph.add((self.ONTO.Concept, RDFS.label, Literal("Concept")))
         
         onto_graph.add((self.ONTO.Tag, RDF.type, OWL.Class))
         onto_graph.add((self.ONTO.Tag, RDFS.label, Literal("Tag")))
         
-        # Define properties
+        # ===== DATA PROPERTIES =====
+        
+        # Document properties
+        onto_graph.add((self.ONTO.path, RDF.type, OWL.DatatypeProperty))
+        onto_graph.add((self.ONTO.path, RDFS.domain, self.ONTO.Document))
+        onto_graph.add((self.ONTO.path, RDFS.range, RDFS.Literal))
+        
+        onto_graph.add((self.ONTO.sourceFormat, RDF.type, OWL.DatatypeProperty))
+        onto_graph.add((self.ONTO.sourceFormat, RDFS.domain, self.ONTO.Document))
+        onto_graph.add((self.ONTO.sourceFormat, RDFS.label, Literal("source format")))
+        onto_graph.add((self.ONTO.sourceFormat, RDFS.comment,
+                       Literal("MIME type of the source document (e.g., text/markdown, application/pdf)")))
+        
+        # Chunk properties
+        onto_graph.add((self.ONTO.chunkIndex, RDF.type, OWL.DatatypeProperty))
+        onto_graph.add((self.ONTO.chunkIndex, RDFS.domain, self.ONTO.Chunk))
+        onto_graph.add((self.ONTO.chunkIndex, RDFS.range, RDFS.Literal))
+        onto_graph.add((self.ONTO.chunkIndex, RDFS.label, Literal("chunk index")))
+        
+        onto_graph.add((self.ONTO.chunkText, RDF.type, OWL.DatatypeProperty))
+        onto_graph.add((self.ONTO.chunkText, RDFS.domain, self.ONTO.Chunk))
+        onto_graph.add((self.ONTO.chunkText, RDFS.range, RDFS.Literal))
+        onto_graph.add((self.ONTO.chunkText, RDFS.label, Literal("chunk text")))
+        
+        # ===== OBJECT PROPERTIES =====
+        
+        # Document-Chunk relationship
+        onto_graph.add((self.ONTO.hasChunk, RDF.type, OWL.ObjectProperty))
+        onto_graph.add((self.ONTO.hasChunk, RDFS.domain, self.ONTO.Document))
+        onto_graph.add((self.ONTO.hasChunk, RDFS.range, self.ONTO.Chunk))
+        onto_graph.add((self.ONTO.hasChunk, RDFS.label, Literal("has chunk")))
+        
+        # Chunk-Concept relationship
+        onto_graph.add((self.ONTO.mentionsConcept, RDF.type, OWL.ObjectProperty))
+        onto_graph.add((self.ONTO.mentionsConcept, RDFS.domain, self.ONTO.Chunk))
+        onto_graph.add((self.ONTO.mentionsConcept, RDFS.range, self.ONTO.DomainConcept))
+        onto_graph.add((self.ONTO.mentionsConcept, RDFS.label, Literal("mentions concept")))
+        onto_graph.add((self.ONTO.mentionsConcept, RDFS.comment,
+                       Literal("Indicates that the chunk mentions or refers to a domain concept.")))
+        
+        # Topic-Concept relationship
+        onto_graph.add((self.ONTO.coversConcept, RDF.type, OWL.ObjectProperty))
+        onto_graph.add((self.ONTO.coversConcept, RDFS.domain, self.ONTO.TopicNode))
+        onto_graph.add((self.ONTO.coversConcept, RDFS.range, self.ONTO.DomainConcept))
+        onto_graph.add((self.ONTO.coversConcept, RDFS.label, Literal("covers concept")))
+        onto_graph.add((self.ONTO.coversConcept, RDFS.comment,
+                       Literal("Associates a topic with domain concepts that fall under it.")))
+        
+        # Topic-Chunk relationship
+        onto_graph.add((self.ONTO.coversChunk, RDF.type, OWL.ObjectProperty))
+        onto_graph.add((self.ONTO.coversChunk, RDFS.domain, self.ONTO.TopicNode))
+        onto_graph.add((self.ONTO.coversChunk, RDFS.range, self.ONTO.Chunk))
+        onto_graph.add((self.ONTO.coversChunk, RDFS.label, Literal("covers chunk")))
+        onto_graph.add((self.ONTO.coversChunk, RDFS.comment,
+                       Literal("Associates a topic with supporting text chunks.")))
+        
+        # Legacy properties (for backward compatibility)
         onto_graph.add((self.ONTO.linksTo, RDF.type, OWL.ObjectProperty))
         onto_graph.add((self.ONTO.linksTo, RDFS.domain, self.ONTO.Document))
         onto_graph.add((self.ONTO.linksTo, RDFS.range, self.ONTO.Document))
