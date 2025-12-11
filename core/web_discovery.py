@@ -29,6 +29,52 @@ class WebDiscovery:
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         })
     
+    def extract_research_topic(self, content: str, max_words: int = 15) -> str:
+        """
+        Extract a focused research topic from document content.
+        
+        Args:
+            content: Document content to analyze
+            max_words: Maximum words in the extracted topic
+            
+        Returns:
+            Concise research topic string
+        """
+        # Limit content to first 5000 characters
+        content_sample = content[:5000]
+        
+        response = self.client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": f"""You are a research topic extraction expert. Extract the main research topic from the provided document.
+
+Guidelines:
+- Return ONE concise sentence (max {max_words} words)
+- Use specific domain terminology (e.g., "EU Data Act", "cloud portability", "RDF graphs")
+- Focus on the PRIMARY research question or theme
+- Be specific enough to generate relevant search queries
+- Avoid generic terms like "data governance" or "technology trends"
+
+Output format: Just the topic sentence, nothing else."""
+                },
+                {
+                    "role": "user",
+                    "content": f"Extract the main research topic from this document:\n\n{content_sample}"
+                }
+            ],
+            temperature=0.2,
+            max_tokens=100
+        )
+        
+        topic = response.choices[0].message.content.strip()
+        
+        # Remove quotes if present
+        topic = topic.strip('"').strip("'")
+        
+        return topic
+    
     def discover_articles(self, prompt: str, max_results: int = 5) -> List[Dict[str, Any]]:
         """Use AI to generate search queries and find relevant URLs"""
         
@@ -57,21 +103,95 @@ class WebDiscovery:
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a search query generator. Generate 3-5 specific search queries that would find relevant articles for the user's research topic. Return only the queries, one per line."
+                    "content": """You are a research search query expert. Generate 3-5 highly specific and targeted search queries for academic and professional articles.
+
+Guidelines:
+- Use exact terminology from the research topic
+- Include key domain-specific terms and concepts
+- Combine main topic with specific subtopics
+- Make queries specific enough to avoid irrelevant results
+- Focus on the EXACT topic provided, not tangentially related fields
+
+Return only the search queries, one per line, without numbering or bullet points."""
                 },
                 {
                     "role": "user",
-                    "content": f"Generate search queries for: {prompt}"
+                    "content": f"Research topic: {prompt}\n\nGenerate search queries that will find articles SPECIFICALLY about this topic."
                 }
             ],
-            temperature=0.7,
-            max_tokens=200
+            temperature=0.3,
+            max_tokens=300
         )
         
         queries = response.choices[0].message.content.strip().split('\n')
-        queries = [q.strip('- ').strip() for q in queries if q.strip()]
+        queries = [q.strip('- ').strip('0123456789. ').strip() for q in queries if q.strip()]
         
         return queries
+    
+    def generate_queries_from_graph_concepts(
+        self, 
+        topics: List[Dict[str, Any]] = None,
+        concepts: List[str] = None,
+        num_queries: int = 5
+    ) -> List[str]:
+        """
+        Generate search queries from knowledge graph topics and concepts.
+        
+        Args:
+            topics: List of topic dicts with 'label', 'description', 'concepts'
+            concepts: List of concept strings
+            num_queries: Number of queries to generate
+            
+        Returns:
+            List of targeted search query strings
+        """
+        # Build context from graph data
+        context_parts = []
+        
+        if topics:
+            context_parts.append("Research Topics:")
+            for i, topic in enumerate(topics[:3], 1):
+                context_parts.append(f"{i}. {topic['label']}")
+                if topic.get('description'):
+                    context_parts.append(f"   Description: {topic['description']}")
+                if topic.get('concepts'):
+                    context_parts.append(f"   Key concepts: {', '.join(topic['concepts'][:5])}")
+        
+        if concepts:
+            context_parts.append("\nDomain Concepts:")
+            context_parts.append(", ".join(concepts[:15]))
+        
+        context = "\n".join(context_parts)
+        
+        response = self.client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": f"""You are a research search query expert. Generate {num_queries} highly specific search queries based on the provided knowledge graph structure.
+
+Guidelines:
+- Use the EXACT concepts and topics from the knowledge graph
+- Combine multiple concepts to create focused queries
+- Target academic papers, technical articles, and industry reports
+- Make queries specific enough to avoid irrelevant results
+- Focus on relationships between concepts
+
+Return only the search queries, one per line, without numbering or bullet points."""
+                },
+                {
+                    "role": "user",
+                    "content": f"Based on this knowledge graph:\n\n{context}\n\nGenerate {num_queries} search queries that will find NEW articles to expand this research."
+                }
+            ],
+            temperature=0.4,
+            max_tokens=400
+        )
+        
+        queries = response.choices[0].message.content.strip().split('\n')
+        queries = [q.strip('- ').strip('0123456789. ').strip() for q in queries if q.strip()]
+        
+        return queries[:num_queries]
     
     def extract_article(self, url: str) -> Optional[Dict[str, Any]]:
         """Extract article content from URL"""
@@ -239,7 +359,16 @@ class WebDiscovery:
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a research quality assessor. Evaluate the article and provide: 1) Quality score (1-10), 2) Relevance assessment, 3) Key topics covered. Be concise."
+                    "content": """You are a research quality assessor. Evaluate the article based on:
+- Content depth and detail (not just length)
+- Academic/professional quality
+- Clarity and structure
+- Credibility and sources
+
+Provide your response in this exact format:
+Quality Score: [number 1-10]
+Relevance: [brief assessment]
+Key Topics: [list main topics]"""
                 },
                 {
                     "role": "user",
@@ -250,12 +379,23 @@ class WebDiscovery:
             max_tokens=300
         )
         
-        assessment = response.choices[0].message.content
+        assessment_text = response.choices[0].message.content
+        
+        # Extract numeric quality score
+        quality_score = 0
+        try:
+            import re
+            match = re.search(r'Quality Score:\s*(\d+)', assessment_text)
+            if match:
+                quality_score = int(match.group(1))
+        except:
+            quality_score = 5  # Default to middle score
         
         return {
             'url': article['url'],
             'title': article['title'],
-            'assessment': assessment
+            'assessment': assessment_text,
+            'quality_score': quality_score
         }
     
     def search_web(self, query: str, max_results: int = 10, source: str = 'all') -> List[Dict[str, str]]:

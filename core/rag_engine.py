@@ -231,8 +231,6 @@ class VaultRAG:
                 
                 if self.verbose:
                     print(f"  ✓ Loaded: {filepath.stem}")
-                if self.verbose:
-                    print(f"  ✓ Loaded: {doc.title}")
             except Exception as e:
                 if self.verbose:
                     print(f"  ✗ Error loading {filepath}: {e}")
@@ -1136,6 +1134,117 @@ Provide a comprehensive answer using only the information from the sources above
             if self.verbose:
                 print(f"SPARQL query error: {e}")
             return []
+    
+    def get_graph_concepts(self, top_k: int = 20) -> List[str]:
+        """
+        Extract top domain concepts from knowledge graph.
+        
+        Args:
+            top_k: Maximum number of concepts to return
+            
+        Returns:
+            List of concept labels (strings)
+        """
+        if not RDF_AVAILABLE or self.rdf_graph is None:
+            if self.verbose:
+                print("Warning: Knowledge graph not available")
+            return []
+        
+        # Ensure namespaces are bound
+        if not hasattr(self, 'ONTO'):
+            self.ONTO = Namespace("http://pkm.local/ontology/")
+            self.rdf_graph.bind("onto", self.ONTO)
+        
+        query = """
+        PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+        PREFIX onto: <http://pkm.local/ontology/>
+        
+        SELECT ?label (COUNT(?chunk) as ?mentions)
+        WHERE {
+            ?concept a onto:DomainConcept .
+            ?concept skos:prefLabel ?label .
+            OPTIONAL { ?chunk onto:mentionsConcept ?concept }
+        }
+        GROUP BY ?label
+        ORDER BY DESC(?mentions)
+        """
+        
+        results = self.query_sparql(query)
+        concepts = [r['label'] for r in results[:top_k] if 'label' in r]
+        
+        if self.verbose:
+            print(f"✓ Extracted {len(concepts)} domain concepts from knowledge graph")
+        
+        return concepts
+    
+    def get_graph_topics(self, top_k: int = 10) -> List[Dict[str, Any]]:
+        """
+        Extract topic nodes from knowledge graph with their covered concepts.
+        
+        Args:
+            top_k: Maximum number of topics to return
+            
+        Returns:
+            List of dicts with 'label', 'description', 'concepts' keys
+        """
+        if not RDF_AVAILABLE or self.rdf_graph is None:
+            if self.verbose:
+                print("Warning: Knowledge graph not available")
+            return []
+        
+        # Ensure namespaces are bound
+        if not hasattr(self, 'ONTO'):
+            self.ONTO = Namespace("http://pkm.local/ontology/")
+            self.rdf_graph.bind("onto", self.ONTO)
+        
+        # Get all topics with their labels and descriptions
+        query = """
+        PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+        PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+        PREFIX onto: <http://pkm.local/ontology/>
+        
+        SELECT ?topic ?label ?description
+        WHERE {
+            ?topic a onto:TopicNode .
+            ?topic skos:prefLabel ?label .
+            OPTIONAL { ?topic rdfs:comment ?description }
+        }
+        """
+        
+        results = self.query_sparql(query)
+        topics = []
+        
+        for result in results[:top_k]:
+            topic_uri = result.get('topic', '')
+            label = result.get('label', '')
+            description = result.get('description', '')
+            
+            # Get concepts covered by this topic
+            concept_query = f"""
+            PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+            PREFIX onto: <http://pkm.local/ontology/>
+            
+            SELECT ?conceptLabel
+            WHERE {{
+                <{topic_uri}> onto:coversConcept ?concept .
+                ?concept skos:prefLabel ?conceptLabel .
+            }}
+            LIMIT 10
+            """
+            
+            concept_results = self.query_sparql(concept_query)
+            concepts = [r['conceptLabel'] for r in concept_results if 'conceptLabel' in r]
+            
+            topics.append({
+                'label': label,
+                'description': description,
+                'concepts': concepts
+            })
+        
+        if self.verbose:
+            print(f"✓ Extracted {len(topics)} topic nodes from knowledge graph")
+        
+        return topics
     
     def export_graph_ttl(self, filename: str = None) -> str:
         """Export RDF graph to TTL file with human-readable section comments"""
