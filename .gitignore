@@ -45,6 +45,22 @@ socialmediapost/
 GENERATED_TTL_ANALYSIS.md
 km_graphrag_stack_design.md
 FEATURE_MAPPING.md
+PRESENTATION_COMPLETION.md
+DEMO_WALKTHROUGH.ps1
+API_EXPANSION_SUMMARY.md
+WARNINGS_ANALYSIS.md
+COMPLETE_PIPELINE_WALKTHROUGH.md
+api_test_results.txt
+
+# Archive and old docs
+archive/
+
+# Pipeline state and discovery outputs (user-specific)
+data/discovered_urls*.txt
+data/discovery_report.txt
+data/discovery_results*.txt
+data/pipeline_state.yaml
+data/source_annotations.yaml
 
 # Test files - keep in repo for now, can be moved to examples/ later
 # test_*.py

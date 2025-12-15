@@ -1,6 +1,35 @@
+@prefix dct: <http://purl.org/dc/terms/> .
 @prefix onto: <http://pkm.local/ontology/> .
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+
+onto:chunkIndex a owl:DatatypeProperty ;
+    rdfs:label "chunk index" ;
+    rdfs:domain onto:Chunk ;
+    rdfs:range rdfs:Literal .
+
+onto:chunkText a owl:DatatypeProperty ;
+    rdfs:label "chunk text" ;
+    rdfs:domain onto:Chunk ;
+    rdfs:range rdfs:Literal .
+
+onto:coversChunk a owl:ObjectProperty ;
+    rdfs:label "covers chunk" ;
+    rdfs:comment "Associates a topic with supporting text chunks." ;
+    rdfs:domain onto:TopicNode ;
+    rdfs:range onto:Chunk .
+
+onto:coversConcept a owl:ObjectProperty ;
+    rdfs:label "covers concept" ;
+    rdfs:comment "Associates a topic with domain concepts that fall under it." ;
+    rdfs:domain onto:TopicNode ;
+    rdfs:range onto:DomainConcept .
+
+onto:hasChunk a owl:ObjectProperty ;
+    rdfs:label "has chunk" ;
+    rdfs:domain onto:Document ;
+    rdfs:range onto:Chunk .
 
 onto:hasTag a owl:ObjectProperty ;
     rdfs:domain onto:Document ;
@@ -14,12 +43,43 @@ onto:mentions a owl:ObjectProperty ;
     rdfs:domain onto:Document ;
     rdfs:range onto:Concept .
 
+onto:mentionsConcept a owl:ObjectProperty ;
+    rdfs:label "mentions concept" ;
+    rdfs:comment "Indicates that the chunk mentions or refers to a domain concept." ;
+    rdfs:domain onto:Chunk ;
+    rdfs:range onto:DomainConcept .
+
+onto:path a owl:DatatypeProperty ;
+    rdfs:domain onto:Document ;
+    rdfs:range rdfs:Literal .
+
+onto:sourceFormat a owl:DatatypeProperty ;
+    rdfs:label "source format" ;
+    rdfs:comment "MIME type of the source document (e.g., text/markdown, application/pdf)" ;
+    rdfs:domain onto:Document .
+
 onto:Concept a owl:Class ;
     rdfs:label "Concept" .
 
 onto:Tag a owl:Class ;
     rdfs:label "Tag" .
 
+onto:DomainConcept a owl:Class ;
+    rdfs:label "Domain Concept" ;
+    rdfs:comment "Real-world or domain-level concept represented in the knowledge graph." ;
+    rdfs:subClassOf skos:Concept .
+
+onto:TopicNode a owl:Class ;
+    rdfs:label "Topic Node" ;
+    rdfs:comment "A topic or domain area summarising a set of domain concepts and supporting documents." ;
+    rdfs:subClassOf skos:Concept .
+
+onto:Chunk a owl:Class ;
+    rdfs:label "Chunk" ;
+    rdfs:comment "A text span extracted from a document for retrieval and annotation." .
+
 onto:Document a owl:Class ;
-    rdfs:label "Document" .
+    rdfs:label "Document" ;
+    rdfs:comment "A source document such as Markdown, PDF, or HTML." ;
+    rdfs:subClassOf dct:BibliographicResource .
 

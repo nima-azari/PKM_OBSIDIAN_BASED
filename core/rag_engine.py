@@ -10,6 +10,7 @@ import json
 import hashlib
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional, Any
+from datetime import datetime
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -93,11 +94,13 @@ class VaultRAG:
         self, 
         sources_dir: str = "data/sources",
         cache_dir: str = "data",
-        verbose: bool = False
+        verbose: bool = False,
+        meta_ontology_path: str = None
     ):
         self.sources_dir = Path(sources_dir)
         self.cache_dir = Path(cache_dir)
         self.verbose = verbose
+        self.meta_ontology_path = meta_ontology_path
         
         # Cache subdirectories
         self.keywords_cache = self.cache_dir / "keywords"
@@ -117,6 +120,9 @@ class VaultRAG:
         # RDF Graph components
         self.rdf_graph = None
         self.nx_graph = None
+        self.meta_ontology = None
+        self.meta_classes = {}
+        self.meta_properties = {}
         if RDF_AVAILABLE:
             self.rdf_graph = Graph()
             self.nx_graph = nx.DiGraph()
@@ -129,6 +135,10 @@ class VaultRAG:
             self.rdf_graph.bind("skos", SKOS)
             self.rdf_graph.bind("dct", DCTERMS)
             self.rdf_graph.bind("rdfs", RDFS)
+            
+            # Load meta-ontology if provided
+            if meta_ontology_path:
+                self._load_meta_ontology(meta_ontology_path)
         
         if OPENAI_AVAILABLE and os.getenv('OPENAI_API_KEY'):
             self.client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
@@ -758,6 +768,184 @@ Provide a comprehensive answer using only the information from the sources above
     
     # === GRAPH RAG METHODS ===
     
+    def _load_meta_ontology(self, path: str):
+        """Load meta-ontology TTL file to guide graph construction."""
+        try:
+            self.meta_ontology = Graph()
+            self.meta_ontology.parse(path, format='turtle')
+            
+            # Extract meta-ontology namespace
+            meta_ns = None
+            for prefix, namespace in self.meta_ontology.namespaces():
+                if prefix == '':
+                    meta_ns = namespace
+                    break
+            
+            if meta_ns:
+                self.META = Namespace(str(meta_ns))
+                # Don't bind to main graph - keep meta-ontology separate
+                # self.rdf_graph.bind("meta", self.META)
+            
+            # Extract available classes
+            for s, p, o in self.meta_ontology.triples((None, RDF.type, OWL.Class)):
+                label = None
+                for _, _, l in self.meta_ontology.triples((s, RDFS.label, None)):
+                    label = str(l)
+                    break
+                if label:
+                    self.meta_classes[label] = s
+            
+            # Extract available properties
+            for s, p, o in self.meta_ontology.triples((None, RDF.type, OWL.ObjectProperty)):
+                label = None
+                for _, _, l in self.meta_ontology.triples((s, RDFS.label, None)):
+                    label = str(l)
+                    break
+                if label:
+                    self.meta_properties[label] = s
+            
+            if self.verbose:
+                print(f"✓ Loaded meta-ontology: {len(self.meta_classes)} classes, {len(self.meta_properties)} properties")
+                print(f"  Classes: {', '.join(list(self.meta_classes.keys())[:5])}...")
+                print(f"  Properties: {', '.join(list(self.meta_properties.keys())[:5])}...")
+        
+        except Exception as e:
+            if self.verbose:
+                print(f"Warning: Could not load meta-ontology from {path}: {e}")
+            self.meta_ontology = None
+    
+    def generate_meta_ontology_from_sources(self, output_path: str) -> str:
+        """
+        Generate meta-ontology by analyzing all source documents with LLM.
+        
+        This extracts:
+        - Top-level domain concepts (OWL Classes)
+        - Key relationships between concepts (OWL ObjectProperties)
+        - Domain vocabulary and terminology
+        
+        Returns:
+            Path to saved meta-ontology TTL file
+        """
+        from openai import OpenAI
+        from datetime import datetime
+        
+        if not self.documents:
+            if self.verbose:
+                print("  ⚠ No documents loaded. Cannot generate meta-ontology.")
+            return ""
+        
+        client = OpenAI()
+        
+        # Collect sample text from all documents
+        sample_texts = []
+        for doc in self.documents[:20]:  # Limit to first 20 documents
+            # Take first 2000 chars as sample
+            sample = doc.content[:2000]
+            sample_texts.append(f"Document: {doc.title}\n{sample}\n")
+        
+        combined_sample = "\n---\n".join(sample_texts)
+        
+        # LLM prompt to extract meta-ontology
+        prompt = f"""Analyze the following documents and extract a domain meta-ontology.
+
+Documents:
+{combined_sample}
+
+Extract:
+1. Top-level CONCEPTS (5-15 main domain concepts as OWL Classes)
+   - Use clear, singular noun phrases
+   - Examples: "Policy framework", "Data technology", "Regulatory requirement"
+
+2. KEY RELATIONSHIPS (5-10 object properties between concepts)
+   - Use verb phrases
+   - Examples: "relatesTo", "governedBy", "implementedThrough"
+
+Return ONLY valid Turtle/TTL format with:
+- OWL Class definitions with rdfs:label and rdfs:comment
+- OWL ObjectProperty definitions with rdfs:label, rdfs:domain, rdfs:range
+- Use prefix: @prefix : <http://pkm.local/meta-ontology/> .
+
+Example format:
+```
+@prefix : <http://pkm.local/meta-ontology/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+:PolicyFramework a owl:Class ;
+    rdfs:label "Policy framework" ;
+    rdfs:comment "A regulatory or governance framework" .
+
+:relatesTo a owl:ObjectProperty ;
+    rdfs:label "relates to" ;
+    rdfs:domain :Concept ;
+    rdfs:range :Concept .
+```
+
+Generate the complete meta-ontology:"""
+        
+        if self.verbose:
+            print("  🤖 Calling LLM to extract meta-ontology...")
+        
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are an ontology engineer. Extract domain vocabulary from text and return valid Turtle/TTL format ONLY."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3
+        )
+        
+        ttl_content = response.choices[0].message.content
+        
+        # Clean up markdown code blocks if present
+        if "```" in ttl_content:
+            ttl_content = ttl_content.split("```")[1]
+            if ttl_content.startswith("turtle") or ttl_content.startswith("ttl"):
+                ttl_content = "\n".join(ttl_content.split("\n")[1:])
+        
+        # Add header
+        header = f"""# Meta-Ontology (Top Layer - Generated from Sources)
+# Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+# Source documents: {len(self.documents)}
+# 
+# Purpose: Defines domain vocabulary to guide knowledge graph construction
+# 
+# ⚠️  IMPORTANT: Review and edit before using!
+#    - Add/remove concepts as needed
+#    - Refine relationships
+#    - Add domain-specific constraints
+# 
+# Usage:
+#    python build_graph.py --meta-ontology {output_path}
+#
+
+"""
+        
+        # Save to file
+        filepath = Path(output_path)
+        filepath.parent.mkdir(parents=True, exist_ok=True)
+        
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(header)
+            f.write(ttl_content.strip())
+        
+        # Parse to verify it's valid TTL
+        try:
+            test_graph = Graph()
+            test_graph.parse(str(filepath), format='turtle')
+            
+            # Count classes and properties
+            num_classes = len(list(test_graph.triples((None, RDF.type, OWL.Class))))
+            num_props = len(list(test_graph.triples((None, RDF.type, OWL.ObjectProperty))))
+            
+            if self.verbose:
+                print(f"  ✓ Generated meta-ontology: {num_classes} classes, {num_props} properties")
+        except Exception as e:
+            if self.verbose:
+                print(f"  ⚠ Warning: Generated TTL may have syntax errors: {e}")
+        
+        return str(filepath)
+    
     def build_knowledge_graph(self, enable_chunking: bool = True, enable_topics: bool = False) -> int:
         """
         Build RDF graph from loaded documents with full semantic model.
@@ -848,8 +1036,22 @@ Provide a comprehensive answer using only the information from the sources above
             # Link chunk to document
             self.rdf_graph.add((doc_uri, self.ONTO.hasChunk, chunk_uri))
             
-            # Extract domain concepts from chunk
-            concepts = self._extract_domain_concepts(chunk_text)
+            # Extract domain concepts AND relationships from chunk
+            if self.meta_ontology and OPENAI_AVAILABLE and self.client:
+                try:
+                    extraction_result = self._llm_extract_concepts_and_relationships(chunk_text)
+                    concepts = extraction_result.get('concepts', [])
+                    relationships = extraction_result.get('relationships', [])
+                except Exception as e:
+                    if self.verbose:
+                        print(f"  Warning: Relationship extraction failed for chunk {i}: {e}")
+                    concepts = self._extract_domain_concepts(chunk_text)
+                    relationships = []
+            else:
+                concepts = self._extract_domain_concepts(chunk_text)
+                relationships = []
+            
+            # Add concepts
             for concept_label in concepts:
                 concept_uri = self.ONTO[self._sanitize_uri(concept_label)]
                 
@@ -861,6 +1063,10 @@ Provide a comprehensive answer using only the information from the sources above
                 # Link chunk to concept
                 self.rdf_graph.add((chunk_uri, self.ONTO.mentionsConcept, concept_uri))
                 domain_concepts.add(concept_uri)
+            
+            # Add semantic relationships
+            if relationships:
+                self._add_semantic_relationships(relationships)
         
         # === Legacy: Extract concepts from headings (backward compatibility) ===
         for section in doc.sections:
@@ -927,10 +1133,22 @@ Provide a comprehensive answer using only the information from the sources above
     def _extract_domain_concepts(self, text: str) -> List[str]:
         """
         Extract domain concepts from text chunk.
-        Uses simple heuristics: capitalized phrases, noun phrases from headings.
+        If meta-ontology is loaded, uses LLM to extract concepts guided by meta-ontology.
+        Otherwise, uses simple heuristics: capitalized phrases, noun phrases from headings.
         
-        For production, this could use NER or LLM-based extraction.
+        Returns:
+            List of concept labels
         """
+        # If meta-ontology available and OpenAI configured, use LLM extraction
+        if self.meta_ontology and OPENAI_AVAILABLE and self.client:
+            try:
+                result = self._llm_extract_concepts_and_relationships(text)
+                return result.get('concepts', [])
+            except Exception as e:
+                if self.verbose:
+                    print(f"  Warning: LLM extraction failed, falling back to heuristics: {e}")
+        
+        # Fallback: heuristic extraction
         concepts = []
         
         # Extract markdown headings
@@ -951,6 +1169,162 @@ Provide a comprehensive answer using only the information from the sources above
         
         # Deduplicate
         return list(set(concepts))[:10]  # Limit to top 10 concepts per chunk
+    
+    def _llm_extract_concepts(self, text: str, max_concepts: int = 10) -> List[str]:
+        """Use LLM to extract domain concepts guided by meta-ontology (legacy method)."""
+        result = self._llm_extract_concepts_and_relationships(text, max_concepts)
+        return result.get('concepts', [])
+    
+    def _llm_extract_concepts_and_relationships(self, text: str, max_concepts: int = 10) -> Dict[str, Any]:
+        """
+        Use LLM to extract domain concepts AND relationships guided by meta-ontology.
+        
+        Returns:
+            Dict with keys:
+                - concepts: List[str] - concept labels
+                - relationships: List[Dict] - [{"source": str, "property": str, "target": str}]
+        """
+        # Build meta-ontology context
+        class_list = "\n".join([f"  - {cls}" for cls in list(self.meta_classes.keys())[:15]])
+        
+        # Build property list with domain/range info
+        property_list = []
+        for prop_label, prop_uri in list(self.meta_properties.items())[:10]:
+            domain = self.meta_ontology.value(prop_uri, RDFS.domain)
+            range_val = self.meta_ontology.value(prop_uri, RDFS.range)
+            domain_label = self.meta_ontology.value(domain, RDFS.label) if domain else "Any"
+            range_label = self.meta_ontology.value(range_val, RDFS.label) if range_val else "Any"
+            property_list.append(f"  - {prop_label}: {domain_label} → {range_label}")
+        
+        property_context = "\n".join(property_list) if property_list else "  (No properties defined)"
+        
+        system_prompt = f"""You are an expert knowledge engineer extracting domain concepts and relationships from text.
+
+Meta-Ontology Classes:
+{class_list}
+
+Meta-Ontology Relationships:
+{property_context}
+
+Your task:
+1. Read the text carefully
+2. Extract key concepts that match the meta-ontology classes
+3. Identify relationships between concepts using the meta-ontology properties
+4. Return valid JSON with this structure:
+
+{{
+  "concepts": ["concept1", "concept2", "concept3"],
+  "relationships": [
+    {{"source": "concept1", "property": "property_name", "target": "concept2"}}
+  ]
+}}
+
+Rules:
+- Maximum {max_concepts} concepts
+- Only use property names from the meta-ontology
+- Only create relationships if explicitly stated or strongly implied in text
+- Use exact concept labels that match meta-ontology classes when possible
+- Return valid JSON only, no explanations"""
+
+        user_prompt = f"""Extract domain concepts and relationships from this text:
+
+{text[:1500]}
+
+Return JSON with concepts and relationships:"""
+
+        try:
+            response = self.client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.3,
+                max_tokens=500,
+                response_format={"type": "json_object"}
+            )
+            
+            result_text = response.choices[0].message.content.strip()
+            result = json.loads(result_text)
+            
+            # Validate structure
+            if not isinstance(result.get('concepts'), list):
+                result['concepts'] = []
+            if not isinstance(result.get('relationships'), list):
+                result['relationships'] = []
+            
+            # Clean concepts (remove explanations)
+            result['concepts'] = [
+                c.strip() for c in result['concepts'] 
+                if isinstance(c, str) and c.strip() and '(' not in c
+            ][:max_concepts]
+            
+            # Validate relationships
+            valid_relationships = []
+            for rel in result['relationships']:
+                if isinstance(rel, dict) and 'source' in rel and 'property' in rel and 'target' in rel:
+                    # Check if property exists in meta-ontology
+                    if rel['property'] in self.meta_properties:
+                        valid_relationships.append(rel)
+            
+            result['relationships'] = valid_relationships
+            
+            if self.verbose and valid_relationships:
+                print(f"    Extracted {len(result['concepts'])} concepts, {len(valid_relationships)} relationships")
+            
+            return result
+        
+        except json.JSONDecodeError as e:
+            if self.verbose:
+                print(f"    Warning: Invalid JSON from LLM: {e}")
+            return {'concepts': [], 'relationships': []}
+        except Exception as e:
+            raise Exception(f"LLM extraction failed: {e}")
+    
+    def _add_semantic_relationships(self, relationships: List[Dict]):
+        """
+        Add semantic relationships to graph using meta-ontology properties.
+        
+        Args:
+            relationships: List of dicts with keys: source, property, target
+        """
+        for rel in relationships:
+            try:
+                source_label = rel.get('source', '').strip()
+                property_label = rel.get('property', '').strip()
+                target_label = rel.get('target', '').strip()
+                
+                if not (source_label and property_label and target_label):
+                    continue
+                
+                # Get URIs
+                source_uri = self.ONTO[self._sanitize_uri(source_label)]
+                target_uri = self.ONTO[self._sanitize_uri(target_label)]
+                property_uri = self.meta_properties.get(property_label)
+                
+                if not property_uri:
+                    if self.verbose:
+                        print(f"    Warning: Unknown property '{property_label}', skipping relationship")
+                    continue
+                
+                # Ensure source and target concepts exist
+                if (source_uri, RDF.type, self.ONTO.DomainConcept) not in self.rdf_graph:
+                    self.rdf_graph.add((source_uri, RDF.type, self.ONTO.DomainConcept))
+                    self.rdf_graph.add((source_uri, SKOS.prefLabel, Literal(source_label)))
+                
+                if (target_uri, RDF.type, self.ONTO.DomainConcept) not in self.rdf_graph:
+                    self.rdf_graph.add((target_uri, RDF.type, self.ONTO.DomainConcept))
+                    self.rdf_graph.add((target_uri, SKOS.prefLabel, Literal(target_label)))
+                
+                # Add semantic triple using meta-ontology property
+                self.rdf_graph.add((source_uri, property_uri, target_uri))
+                
+                if self.verbose:
+                    print(f"    ✓ Added relationship: {source_label} --[{property_label}]--> {target_label}")
+            
+            except Exception as e:
+                if self.verbose:
+                    print(f"    Warning: Could not add relationship {rel}: {e}")
     
     def _detect_format(self, path: str) -> str:
         """Detect MIME type from file extension"""
@@ -1309,7 +1683,54 @@ Provide a comprehensive answer using only the information from the sources above
             f.write(ttl_content)
         
         if self.verbose:
-            print(f"Exported graph to {output_path}")
+            print(f"✓ Exported graph to: {output_path}")
+        
+        return str(output_path)
+    
+    def export_meta_ontology(self, filename: str = None) -> str:
+        """Export meta-ontology to separate TTL file (if loaded)."""
+        if not self.meta_ontology:
+            if self.verbose:
+                print("  ℹ No meta-ontology loaded to export")
+            return ""
+        
+        if filename is None:
+            filename = "meta_ontology.ttl"
+        
+        filepath = Path(filename)
+        if filepath.is_absolute() or str(filename).startswith('data'):
+            output_path = filepath
+        else:
+            output_path = self.graphs_cache / filename
+        
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Add header to meta-ontology
+        ttl_content = self.meta_ontology.serialize(format='turtle')
+        
+        header = f"""# Meta-Ontology (Top Layer)
+# Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+# 
+# Purpose: Defines the conceptual vocabulary for domain knowledge
+# This ontology guides LLM-based concept extraction during graph building
+# 
+# Classes: {len(self.meta_classes)}
+# Properties: {len(self.meta_properties)}
+# 
+# Usage:
+#   python build_graph.py --meta-ontology {output_path}
+# 
+# Note: This is the SCHEMA layer. The knowledge graph (instances) is separate.
+#
+
+"""
+        
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(header)
+            f.write(ttl_content)
+        
+        if self.verbose:
+            print(f"✓ Exported meta-ontology to: {output_path}")
         
         return str(output_path)
     

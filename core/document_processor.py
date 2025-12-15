@@ -262,6 +262,7 @@ Output ONLY the article content in markdown format."""
         with open(file_path, 'w', encoding='utf-8') as f:
             f.write(full_content)
         
+        # Note: Caller will print the path
         return str(file_path)
     
     def _extract_youtube_id(self, url: str) -> Optional[str]:
