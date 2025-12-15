@@ -1,0 +1,93 @@
+# Meta-Ontology (Top Layer)
+# Generated: 2025-12-13 07:40:45
+# 
+# Purpose: Defines the conceptual vocabulary for domain knowledge
+# This ontology guides LLM-based concept extraction during graph building
+# 
+# Classes: 8
+# Properties: 8
+# 
+# Usage:
+#   python build_graph.py --meta-ontology data\graphs\meta_ontology.ttl
+# 
+# Note: This is the SCHEMA layer. The knowledge graph (instances) is separate.
+#
+
+@prefix : <http://pkm.local/meta-ontology/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+:addresses a owl:ObjectProperty ;
+    rdfs:label "addresses" ;
+    rdfs:domain :DataAct ;
+    rdfs:range :VendorLockIn .
+
+:empowers a owl:ObjectProperty ;
+    rdfs:label "empowers" ;
+    rdfs:domain :DataAct ;
+    rdfs:range :DataGovernance .
+
+:enables a owl:ObjectProperty ;
+    rdfs:label "enables" ;
+    rdfs:domain :LinkedData ;
+    rdfs:range :KnowledgeGraph .
+
+:facilitates a owl:ObjectProperty ;
+    rdfs:label "facilitates" ;
+    rdfs:domain :DataPortability ;
+    rdfs:range :VendorLockIn .
+
+:implementedThrough a owl:ObjectProperty ;
+    rdfs:label "implemented through" ;
+    rdfs:domain :DataAct ;
+    rdfs:range :LinkedData .
+
+:promotes a owl:ObjectProperty ;
+    rdfs:label "promotes" ;
+    rdfs:domain :DataAct ;
+    rdfs:range :DataInteroperability .
+
+:realizes a owl:ObjectProperty ;
+    rdfs:label "realizes" ;
+    rdfs:comment "Knowledge Graphs realize the vision of the Semantic Web" ;
+    rdfs:domain :KnowledgeGraph ;
+    rdfs:range :SemanticWeb .
+
+:underpins a owl:ObjectProperty ;
+    rdfs:label "underpins" ;
+    rdfs:comment "Semantic Web provides the foundational technologies that underpin Linked Data" ;
+    rdfs:domain :SemanticWeb ;
+    rdfs:range :LinkedData .
+
+:DataGovernance a owl:Class ;
+    rdfs:label "Data Governance" ;
+    rdfs:comment "The management of data availability, usability, integrity, and security." .
+
+:DataInteroperability a owl:Class ;
+    rdfs:label "Data Interoperability" ;
+    rdfs:comment "The ability of different systems to work together and exchange data effectively." .
+
+:DataPortability a owl:Class ;
+    rdfs:label "Data Portability" ;
+    rdfs:comment "The ability to transfer data from one service provider to another." .
+
+:KnowledgeGraph a owl:Class ;
+    rdfs:label "Knowledge Graph" ;
+    rdfs:comment "A structured representation of knowledge that integrates information from diverse sources." .
+
+:SemanticWeb a owl:Class ;
+    rdfs:label "Semantic Web" ;
+    rdfs:comment "An extension of the World Wide Web that enables data to be shared and reused across applications." .
+
+:VendorLockIn a owl:Class ;
+    rdfs:label "Vendor Lock-in" ;
+    rdfs:comment "A situation where a customer is dependent on a vendor for products and services." .
+
+:LinkedData a owl:Class ;
+    rdfs:label "Linked Data" ;
+    rdfs:comment "A method of publishing structured data that enables interlinking and sharing." .
+
+:DataAct a owl:Class ;
+    rdfs:label "EU Data Act" ;
+    rdfs:comment "A regulatory framework aimed at enhancing data access and sharing in the EU." .
+

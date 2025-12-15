@@ -1,0 +1,279 @@
+@prefix :      <http://example.org/meta-kg#> .
+@prefix rdf:   <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl:   <http://www.w3.org/2002/07/owl#> .
+@prefix skos:  <http://www.w3.org/2004/02/skos/core#> .
+@prefix dct:   <http://purl.org/dc/terms/> .
+
+############################
+# Ontology header
+############################
+
+:MetaKGOntology a owl:Ontology ;
+    dct:title "Meta-ontology for EU Data Act & Linked Data" ;
+    dct:description "Top-layer schema to guide LLM-based graph construction around EU Data Act, data standards, data silos and Linked Data benefits." .
+
+############################
+# Core top-level classes
+############################
+
+:Concept a owl:Class ;
+    rdfs:label "Concept" ;
+    rdfs:comment "Very generic top-level abstraction for anything we want to talk about in the KG." .
+
+:PolicyFramework a owl:Class ;
+    rdfs:subClassOf :Concept ;
+    rdfs:label "Policy framework" ;
+    rdfs:comment "Regulatory or policy instruments such as the EU Data Act." .
+
+:DataTechnology a owl:Class ;
+    rdfs:subClassOf :Concept ;
+    rdfs:label "Data-related technology or paradigm" ;
+    rdfs:comment "Technical approaches like Linked Data, cloud platforms, APIs, etc." .
+
+:DataSilo a owl:Class ;
+    rdfs:subClassOf :Concept ;
+    rdfs:label "Data silo" ;
+    rdfs:comment "Isolated data environments that hinder interoperability and portability." .
+
+:DataStandard a owl:Class ;
+    rdfs:subClassOf :Concept ;
+    rdfs:label "Data standard" ;
+    rdfs:comment "Formalized specifications for data formats, semantics, or interfaces." .
+
+:DataObligation a owl:Class ;
+    rdfs:subClassOf :Concept ;
+    rdfs:label "Data-related obligation" ;
+    rdfs:comment "Obligations emerging from regulation or policy, e.g., interoperability obligations." .
+
+:DataBenefit a owl:Class ;
+    rdfs:subClassOf :Concept ;
+    rdfs:label "Data-related benefit" ;
+    rdfs:comment "Positive outcomes like interoperability, reuse, or reduced lock-in." .
+
+:DataLimitation a owl:Class ;
+    rdfs:subClassOf :Concept ;
+    rdfs:label "Data-related limitation" ;
+    rdfs:comment "Negative properties such as vendor lock-in, opaque formats, silos, etc." .
+
+:DataEcosystemActor a owl:Class ;
+    rdfs:subClassOf :Concept ;
+    rdfs:label "Data ecosystem actor" ;
+    rdfs:comment "Stakeholders like cloud providers, data holders, data users." .
+
+############################
+# Object properties (meta relations)
+############################
+
+:regulates a owl:ObjectProperty ;
+    rdfs:label "regulates" ;
+    rdfs:domain :PolicyFramework ;
+    rdfs:range :Concept ;
+    rdfs:comment "Links a policy framework to the concepts it regulates or affects." .
+
+:imposesObligation a owl:ObjectProperty ;
+    rdfs:label "imposes obligation" ;
+    rdfs:domain :PolicyFramework ;
+    rdfs:range :DataObligation ;
+    rdfs:comment "Connects a policy framework to obligations it creates." .
+
+:obligationAppliesTo a owl:ObjectProperty ;
+    rdfs:label "obligation applies to" ;
+    rdfs:domain :DataObligation ;
+    rdfs:range :DataEcosystemActor ;
+    rdfs:comment "Indicates which actor is subject to a given obligation." .
+
+:requiresStandard a owl:ObjectProperty ;
+    rdfs:label "requires standard" ;
+    rdfs:domain :PolicyFramework ;
+    rdfs:range :DataStandard ;
+    rdfs:comment "Indicates that a policy framework mandates or encourages a specific type of standard." .
+
+:hasLimitation a owl:ObjectProperty ;
+    rdfs:label "has limitation" ;
+    rdfs:domain :DataSilo ;
+    rdfs:range :DataLimitation ;
+    rdfs:comment "Describes which limitations are characteristic for a given silo." .
+
+:createsSilo a owl:ObjectProperty ;
+    rdfs:label "creates silo" ;
+    rdfs:domain :DataTechnology ;
+    rdfs:range :DataSilo ;
+    rdfs:comment "Relates a technology (e.g., proprietary cloud) to the data silos it tends to create." .
+
+:mitigatesLimitation a owl:ObjectProperty ;
+    rdfs:label "mitigates limitation" ;
+    rdfs:domain :DataTechnology ;
+    rdfs:range :DataLimitation ;
+    rdfs:comment "Indicates that a technology helps reduce or remove a specific limitation." .
+
+:enablesBenefit a owl:ObjectProperty ;
+    rdfs:label "enables benefit" ;
+    rdfs:domain :Concept ;
+    rdfs:range :DataBenefit ;
+    rdfs:comment "Captures which benefits are enabled by a concept (technology, regulation, standard)." .
+
+:addressesObligation a owl:ObjectProperty ;
+    rdfs:label "addresses obligation" ;
+    rdfs:domain :Concept ;
+    rdfs:range :DataObligation ;
+    rdfs:comment "Indicates that a concept is a way to fulfil or operationalise a regulatory obligation." .
+
+:constrainedBy a owl:ObjectProperty ;
+    rdfs:label "constrained by" ;
+    rdfs:domain :DataTechnology ;
+    rdfs:range :DataLimitation ;
+    rdfs:comment "Shows which limitations a technology suffers from (e.g., proprietary cloud constrained by lock-in)." .
+
+:relatedToConcept a owl:ObjectProperty ;
+    rdfs:label "related to concept" ;
+    rdfs:domain :Concept ;
+    rdfs:range :Concept ;
+    rdfs:comment "Generic symmetric relation to keep connections loose at the meta-layer." ;
+    owl:SymmetricProperty true .
+
+############################
+# Key actors (instances)
+############################
+
+:CloudServiceProvider a :DataEcosystemActor ;
+    rdfs:label "Cloud service provider" ;
+    rdfs:comment "Providers of cloud infrastructure or platform services." .
+
+:DataHolder a :DataEcosystemActor ;
+    rdfs:label "Data holder" ;
+    rdfs:comment "Entities that control access to data under the EU Data Act." .
+
+:DataUser a :DataEcosystemActor ;
+    rdfs:label "Data user" ;
+    rdfs:comment "Entities seeking access to data for reuse, analytics, or services." .
+
+############################
+# Limitations (instances)
+############################
+
+:VendorLockIn a :DataLimitation ;
+    rdfs:label "Vendor lock-in" ;
+    rdfs:comment "Difficulty of switching cloud or technology providers due to proprietary aspects." .
+
+:OpaqueDataFormats a :DataLimitation ;
+    rdfs:label "Opaque data formats" ;
+    rdfs:comment "Non-standard or proprietary formats that impede interoperability." .
+
+:RestrictedAPIs a :DataLimitation ;
+    rdfs:label "Restricted APIs" ;
+    rdfs:comment "Limited or proprietary interfaces that constrain access and portability." .
+
+############################
+# Benefits (instances)
+############################
+
+:ImprovedInteroperability a :DataBenefit ;
+    rdfs:label "Improved interoperability" ;
+    rdfs:comment "Ability of systems to exchange and make use of information seamlessly." .
+
+:DataPortabilityBenefit a :DataBenefit ;
+    rdfs:label "Data portability" ;
+    rdfs:comment "Ease of moving data between providers, platforms, or domains." .
+
+:CrossDomainIntegration a :DataBenefit ;
+    rdfs:label "Cross-domain data integration" ;
+    rdfs:comment "Combining data from different silos or sectors for richer insights." .
+
+:SemanticConsistency a :DataBenefit ;
+    rdfs:label "Semantic consistency" ;
+    rdfs:comment "Shared understanding of meaning across datasets through common vocabularies." .
+
+############################
+# Standards & obligations (instances)
+############################
+
+:InteroperabilityStandard a :DataStandard ;
+    rdfs:label "Interoperability standard" ;
+    rdfs:comment "Generic placeholder for standards that enhance interoperability (syntactic or semantic)." .
+
+:CommonDataModels a :DataStandard ;
+    rdfs:label "Common data models" ;
+    rdfs:comment "Shared schemas and ontologies used across organisations or sectors." .
+
+:InteroperabilityObligation a :DataObligation ;
+    rdfs:label "Interoperability obligation" ;
+    rdfs:comment "Obligation to ensure technical and semantic interoperability between services or providers." .
+
+:PortabilityObligation a :DataObligation ;
+    rdfs:label "Portability obligation" ;
+    rdfs:comment "Obligation to enable users to move data from one provider to another without undue friction." .
+
+############################
+# Main concepts from your description
+############################
+
+# EU Data Act as policy framework
+:EUDataAct a :PolicyFramework ;
+    rdfs:label "EU Data Act" ;
+    skos:prefLabel "EU Data Act" ;
+    rdfs:comment "EU regulatory framework governing data access, use, and sharing, including obligations on standards and interoperability." ;
+    :imposesObligation :InteroperabilityObligation, :PortabilityObligation ;
+    :requiresStandard :InteroperabilityStandard, :CommonDataModels ;
+    :regulates :CloudComputing, :LinkedData, :CloudDataSilo ;
+    :enablesBenefit :ImprovedInteroperability, :DataPortabilityBenefit .
+
+# Linked Data as data technology / paradigm
+:LinkedData a :DataTechnology ;
+    rdfs:label "Linked Data" ;
+    skos:prefLabel "Linked Data" ;
+    rdfs:comment "Web-based, URI- and RDF-centric approach to publish and interlink structured data across silos." ;
+    :enablesBenefit :ImprovedInteroperability, :CrossDomainIntegration, :SemanticConsistency, :DataPortabilityBenefit ;
+    :mitigatesLimitation :VendorLockIn, :OpaqueDataFormats, :RestrictedAPIs ;
+    :addressesObligation :InteroperabilityObligation, :PortabilityObligation ;
+    :relatedToConcept :EUDataAct .
+
+# Cloud technologies as a source of silos & limitations
+:CloudComputing a :DataTechnology ;
+    rdfs:label "Cloud computing technology" ;
+    rdfs:comment "Generic notion of cloud infrastructure and platform technologies." ;
+    :createsSilo :CloudDataSilo ;
+    :constrainedBy :VendorLockIn, :OpaqueDataFormats, :RestrictedAPIs ;
+    :relatedToConcept :EUDataAct .
+
+:CloudDataSilo a :DataSilo ;
+    rdfs:label "Cloud data silo" ;
+    rdfs:comment "Data silo created by proprietary or non-interoperable cloud solutions." ;
+    :hasLimitation :VendorLockIn, :OpaqueDataFormats, :RestrictedAPIs ;
+    :enablesBenefit :LocalPerformance ;    # placeholder, defined below
+    :relatedToConcept :CloudComputing .
+
+:LocalPerformance a :DataBenefit ;
+    rdfs:label "Local performance or optimisation" ;
+    rdfs:comment "Example benefit that may motivate specific siloed cloud architectures, even though they introduce limitations." .
+
+############################
+# How linked data connects standards & silos
+############################
+
+:LinkedDataStandardisationPattern a :Concept ;
+    rdfs:label "Linked Data standardisation pattern" ;
+    rdfs:comment "Meta concept: using Linked Data plus common vocabularies/ontologies as a way to meet EU Data Act interoperability and portability requirements." ;
+    :relatedToConcept :LinkedData, :EUDataAct, :CommonDataModels, :InteroperabilityStandard ;
+    :enablesBenefit :ImprovedInteroperability, :CrossDomainIntegration, :SemanticConsistency, :DataPortabilityBenefit ;
+    :addressesObligation :InteroperabilityObligation, :PortabilityObligation .
+
+# Who obligations apply to
+:InteroperabilityObligation :obligationAppliesTo :CloudServiceProvider, :DataHolder .
+:PortabilityObligation      :obligationAppliesTo :CloudServiceProvider, :DataHolder, :DataUser .
+
+############################
+# Generic pattern nodes (for LLM guidance)
+############################
+
+:RegulatoryToTechPattern a :Concept ;
+    rdfs:label "Regulation-to-technology pattern" ;
+    rdfs:comment "Pattern: a PolicyFramework imposes DataObligation, which are addressed by DataTechnology and DataStandards." .
+
+:TechToSiloPattern a :Concept ;
+    rdfs:label "Technology-to-silo pattern" ;
+    rdfs:comment "Pattern: a DataTechnology creates a DataSilo with DataLimitations that can be mitigated by other technologies (e.g., Linked Data)." .
+
+:BenefitRealisationPattern a :Concept ;
+    rdfs:label "Benefit realisation pattern" ;
+    rdfs:comment "Pattern: a Concept enables DataBenefits that align with obligations and reduce limitations." .
