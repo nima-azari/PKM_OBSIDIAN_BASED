@@ -155,10 +155,69 @@ class AutoSourceDiscovery:
                         })
         
         if self.verbose:
-            print(f"✓ Loaded {len(queries)} queries with priorities")
+            print(f"✓ Loaded {len(queries)} queries from report with priorities")
             for i, q in enumerate(queries, 1):
                 priority = "HIGH" if q['score'] < 30 else "MEDIUM" if q['score'] < 50 else "LOW"
                 print(f"   {i}. [{priority}] {q['query']}")
+            print()
+        
+        return queries
+    
+    def generate_queries_from_ontology(self, meta_ontology_path: str) -> List[Dict[str, any]]:
+        """
+        Generate comprehensive queries from all meta-ontology classes.
+        Used for --mode all to discover sources across all themes.
+        
+        Args:
+            meta_ontology_path: Path to meta-ontology TTL file
+            
+        Returns:
+            List of dicts with 'query', 'topic', 'score' keys (score=50 for all)
+        """
+        from rdflib import Graph, RDF, RDFS, OWL, Namespace
+        
+        if self.verbose:
+            print(f"\n📖 Generating queries from meta-ontology: {meta_ontology_path}")
+        
+        # Load meta-ontology
+        g = Graph()
+        g.parse(meta_ontology_path, format='turtle')
+        
+        # Get all OWL classes
+        classes = list(g.subjects(RDF.type, OWL.Class))
+        
+        queries = []
+        for cls in classes:
+            # Get class name
+            label = g.value(cls, RDFS.label)
+            if label:
+                class_name = str(label)
+            else:
+                # Extract from URI
+                class_name = str(cls).split('#')[-1].split('/')[-1]
+            
+            # Skip abstract base classes
+            if class_name in ['Thing', 'Class', 'Property']:
+                continue
+            
+            # Generate search query from class name
+            # Convert CamelCase to space-separated
+            import re
+            query_text = re.sub(r'([A-Z])', r' \1', class_name).strip()
+            query_text = f"{query_text} EU Data Act"
+            
+            queries.append({
+                'query': query_text,
+                'topic': class_name,
+                'score': 50  # Neutral priority for comprehensive coverage
+            })
+        
+        if self.verbose:
+            print(f"✓ Generated {len(queries)} queries from {len(classes)} ontology classes")
+            for i, q in enumerate(queries[:5], 1):
+                print(f"   {i}. {q['query']}")
+            if len(queries) > 5:
+                print(f"   ... and {len(queries)-5} more")
             print()
         
         return queries
@@ -449,12 +508,23 @@ class AutoSourceDiscovery:
             texts.append(text)
         
         if texts:
-            # Batch encode for efficiency
-            embeddings = semantic_model.encode(texts, convert_to_numpy=True, show_progress_bar=False)
-            self.existing_embeddings = [emb for emb in embeddings]
-            
-            if self.verbose:
-                print(f"   ✓ Cached {len(self.existing_embeddings)} embeddings")
+            # Batch encode for efficiency (backend-specific)
+            try:
+                if semantic_backend == 'tensorflow':
+                    embeddings = semantic_model(texts).numpy()
+                elif semantic_backend == 'pytorch':
+                    embeddings = semantic_model.encode(texts, convert_to_numpy=True, show_progress_bar=False)
+                else:
+                    return
+                
+                self.existing_embeddings = [emb for emb in embeddings]
+                
+                if self.verbose:
+                    print(f"   ✓ Cached {len(self.existing_embeddings)} embeddings")
+            except Exception as e:
+                if self.verbose:
+                    print(f"   ⚠️  Failed to build embedding cache: {e}")
+                self.existing_embeddings = []
     
     def _search_openalex(self, query: str, max_results: int = 5) -> List[Dict[str, str]]:
         """Search OpenAlex API for scholarly papers."""
@@ -1135,8 +1205,12 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description='Automated source discovery from discovery report')
+    parser.add_argument('--mode', choices=['gaps', 'all'], default='gaps',
+                        help='Discovery mode: gaps (low coverage only) or all (all themes) (default: gaps)')
     parser.add_argument('--report', default='data/discovery_report.txt',
                         help='Path to discovery report with queries (default: data/discovery_report.txt)')
+    parser.add_argument('--meta-ontology', default='data/graphs/meta_ontology.ttl',
+                        help='Path to meta-ontology (for --mode all) (default: data/graphs/meta_ontology.ttl)')
     parser.add_argument('--output', default='data/discovered_urls.txt',
                         help='Path to save discovered URLs (default: data/discovered_urls.txt)')
     parser.add_argument('--detailed-report', default='data/discovery_results.txt',
@@ -1167,12 +1241,20 @@ def main():
     # Create discovery engine
     discovery = AutoSourceDiscovery(sources_dir=args.sources_dir, verbose=True)
     
-    # Load queries
+    # Load queries based on mode
     if args.queries:
         queries = args.queries
         print(f"Using {len(queries)} custom queries")
-    else:
+    elif args.mode == 'gaps':
+        # Gap mode: Load from discovery report (low coverage themes only)
+        print(f"🎯 Mode: GAPS (low coverage themes only)")
         queries = discovery.load_queries_from_report(args.report)
+    elif args.mode == 'all':
+        # All mode: Generate from meta-ontology (comprehensive coverage)
+        print(f"🌐 Mode: ALL (comprehensive coverage of all themes)")
+        queries = discovery.generate_queries_from_ontology(args.meta_ontology)
+    else:
+        raise ValueError(f"Invalid mode: {args.mode}")
     
     if not queries:
         print("❌ No queries found. Provide --queries or ensure report has queries.")
