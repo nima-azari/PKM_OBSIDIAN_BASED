@@ -15,6 +15,12 @@ import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 try:
+    import yaml
+    YAML_AVAILABLE = True
+except ImportError:
+    YAML_AVAILABLE = False
+
+try:
     import openai
     from openai import OpenAI
     OPENAI_AVAILABLE = True
@@ -40,9 +46,10 @@ except ImportError:
 class Document:
     """Represents a document/note from the vault."""
     
-    def __init__(self, path: str, content: str):
+    def __init__(self, path: str, content: str, importance: int = 3):
         self.path = path
         self.content = content
+        self.importance = importance  # 1-5 scale from annotations
         self.title = self._extract_title()
         self.sections = self._split_sections()
         self.embedding = None
@@ -116,6 +123,10 @@ class VaultRAG:
         
         self.documents: List[Document] = []
         self.client = None
+        self.source_annotations = {}  # filename -> {importance, note, etc}
+        
+        # Load source annotations if available
+        self._load_source_annotations()
         
         # RDF Graph components
         self.rdf_graph = None
@@ -145,6 +156,37 @@ class VaultRAG:
         
         self._load_documents()
     
+    def _load_source_annotations(self):
+        """Load source importance annotations from YAML file."""
+        annotations_path = self.cache_dir / "source_annotations.yaml"
+        
+        if not YAML_AVAILABLE:
+            if self.verbose:
+                print("  ⚠️  YAML not available, install pyyaml for importance weighting")
+            return
+        
+        if not annotations_path.exists():
+            if self.verbose:
+                print(f"  ⚠️  No annotations file found: {annotations_path}")
+            return
+        
+        try:
+            with open(annotations_path, 'r', encoding='utf-8') as f:
+                self.source_annotations = yaml.safe_load(f) or {}
+            
+            if self.verbose:
+                annotated_count = len(self.source_annotations)
+                print(f"  ✓ Loaded annotations for {annotated_count} sources")
+        except Exception as e:
+            if self.verbose:
+                print(f"  ⚠️  Failed to load annotations: {e}")
+    
+    def _get_importance(self, filename: str) -> int:
+        """Get importance rating for a source file (1-5, default 3)."""
+        if filename in self.source_annotations:
+            return self.source_annotations[filename].get('importance', 3)
+        return 3  # Default: medium importance
+    
     def _get_file_hash(self, filepath: Path) -> str:
         """Get MD5 hash of file for cache invalidation."""
         hasher = hashlib.md5()
@@ -163,12 +205,12 @@ class VaultRAG:
         if self.verbose:
             print(f"Loading documents from {self.sources_dir}...")
         
-        # Find all supported files (only in root directory, not subdirectories)
+        # Find all supported files (including subdirectories)
         supported_extensions = ['.md', '.txt', '.pdf', '.html', '.htm', '.docx']
         files = []
         for ext in supported_extensions:
-            # Use glob pattern to only get files in root, not subdirectories
-            files.extend(self.sources_dir.glob(f'*{ext}'))
+            # Use glob pattern to recursively find files in all subdirectories
+            files.extend(self.sources_dir.glob(f'**/*{ext}'))
         
         # Filter out auto-converted files and non-content files
         filtered_files = []
@@ -222,9 +264,10 @@ class VaultRAG:
                 
                 loaded_hashes.add(content_hash)
                 
-                # Create document with relative path from sources_dir
+                # Create document with relative path from sources_dir and importance
                 rel_path = str(filepath.relative_to(self.sources_dir))
-                doc = Document(rel_path, content)
+                importance = self._get_importance(filepath.name)
+                doc = Document(rel_path, content, importance=importance)
                 
                 # Try to load cached embedding
                 file_hash = self._get_file_hash(filepath)
@@ -245,8 +288,17 @@ class VaultRAG:
                 if self.verbose:
                     print(f"  ✗ Error loading {filepath}: {e}")
         
+        # Sort by importance (highest first: 5 → 1)
+        self.documents.sort(key=lambda d: d.importance, reverse=True)
+        
         if self.verbose:
-            print(f"Loaded {len(self.documents)} documents\n")
+            print(f"Loaded {len(self.documents)} documents")
+            # Show importance distribution
+            importance_dist = {}
+            for doc in self.documents:
+                importance_dist[doc.importance] = importance_dist.get(doc.importance, 0) + 1
+            print(f"  Importance distribution: {dict(sorted(importance_dist.items(), reverse=True))}")
+            print()
     
     def _read_pdf(self, filepath: Path) -> str:
         """Extract text from PDF file."""
@@ -836,29 +888,56 @@ Provide a comprehensive answer using only the information from the sources above
         
         client = OpenAI()
         
-        # Collect sample text from all documents
+        # Collect sample text from documents, weighted by importance
+        # Documents are already sorted by importance (5 → 1)
         sample_texts = []
-        for doc in self.documents[:20]:  # Limit to first 20 documents
-            # Take first 2000 chars as sample
-            sample = doc.content[:2000]
-            sample_texts.append(f"Document: {doc.title}\n{sample}\n")
+        total_chars = 0
+        max_total_chars = 50000  # LLM context limit
+        
+        for doc in self.documents:
+            if total_chars >= max_total_chars:
+                break
+            
+            # Sample size based on importance: 5→4000, 4→3000, 3→2000, 2→1000, 1→500 chars
+            sample_size = doc.importance * 800 + 200
+            sample = doc.content[:sample_size]
+            sample_texts.append(f"Document [{doc.importance}/5]: {doc.title}\n{sample}\n")
+            total_chars += len(sample) + 100
+        
+        if self.verbose:
+            print(f"  📊 Sampled {len(sample_texts)} documents (weighted by importance)")
+            importance_counts = {}
+            for doc in self.documents[:len(sample_texts)]:
+                importance_counts[doc.importance] = importance_counts.get(doc.importance, 0) + 1
+            print(f"     Importance distribution: {dict(sorted(importance_counts.items(), reverse=True))}")
         
         combined_sample = "\n---\n".join(sample_texts)
         
         # LLM prompt to extract meta-ontology
-        prompt = f"""Analyze the following documents and extract a domain meta-ontology.
+        prompt = f"""Analyze the following documents and extract the TOP-LEVEL domain vocabulary as a meta-ontology.
 
 Documents:
 {combined_sample}
 
+CRITICAL: Extract ONLY the most important high-level domain concepts, not every noun phrase.
+
 Extract:
-1. Top-level CONCEPTS (5-15 main domain concepts as OWL Classes)
-   - Use clear, singular noun phrases
-   - Examples: "Policy framework", "Data technology", "Regulatory requirement"
+1. TOP-LEVEL DOMAIN CONCEPTS (8-12 main classes as OWL Classes)
+   - Focus on concepts that appear FREQUENTLY across documents
+   - Use standard terminology from the domain
+   - Prefer well-known terms over document-specific jargon
+   - Examples: "Data Quality", "Semantic Web", "Interoperability", "Knowledge Graph"
+   - AVOID: Author names, menu items, generic phrases, document titles
 
 2. KEY RELATIONSHIPS (5-10 object properties between concepts)
-   - Use verb phrases
-   - Examples: "relatesTo", "governedBy", "implementedThrough"
+   - Use clear verb phrases
+   - Examples: "relatesTo", "governedBy", "implementedThrough", "facilitates", "addresses"
+
+3. VALIDATION: Each concept should be:
+   - A recognized domain term
+   - Mentioned in at least 2-3 documents
+   - A noun or noun phrase (not a sentence)
+   - Relevant to the core subject matter
 
 Return ONLY valid Turtle/TTL format with:
 - OWL Class definitions with rdfs:label and rdfs:comment
@@ -966,6 +1045,11 @@ Generate the complete meta-ontology:"""
             print(f"Building knowledge graph from {len(self.documents)} documents...")
             print(f"  Chunking: {'enabled' if enable_chunking else 'disabled'}")
             print(f"  Topic extraction: {'enabled' if enable_topics else 'disabled'}")
+            # Show importance distribution
+            importance_dist = {}
+            for doc in self.documents:
+                importance_dist[doc.importance] = importance_dist.get(doc.importance, 0) + 1
+            print(f"  Importance weighting: {dict(sorted(importance_dist.items(), reverse=True))}")
         
         # Process each document
         for doc in self.documents:
@@ -996,6 +1080,7 @@ Generate the complete meta-ontology:"""
         self.rdf_graph.add((doc_uri, RDF.type, self.ONTO.Document))
         self.rdf_graph.add((doc_uri, RDFS.label, Literal(doc.title)))
         self.rdf_graph.add((doc_uri, self.ONTO.path, Literal(doc.path)))
+        self.rdf_graph.add((doc_uri, self.ONTO.importance, Literal(doc.importance)))
         
         # Add source format
         source_format = self._detect_format(doc.path)
@@ -1198,33 +1283,42 @@ Generate the complete meta-ontology:"""
         
         property_context = "\n".join(property_list) if property_list else "  (No properties defined)"
         
-        system_prompt = f"""You are an expert knowledge engineer extracting domain concepts and relationships from text.
+        system_prompt = f"""You are an expert knowledge engineer extracting domain concepts from text.
 
-Meta-Ontology Classes:
+CRITICAL: You MUST extract ONLY concepts from this meta-ontology:
+
+Meta-Ontology Classes (REQUIRED - use these ONLY):
 {class_list}
 
-Meta-Ontology Relationships:
+Meta-Ontology Relationships (OPTIONAL - use when applicable):
 {property_context}
 
 Your task:
 1. Read the text carefully
-2. Extract key concepts that match the meta-ontology classes
-3. Identify relationships between concepts using the meta-ontology properties
-4. Return valid JSON with this structure:
+2. Find which meta-ontology classes are mentioned or discussed
+3. Map text phrases to the EXACT meta-ontology class labels
+4. Extract relationships ONLY using meta-ontology properties
+5. Return valid JSON
 
+STRICT RULES:
+- ONLY extract concepts that match meta-ontology classes above
+- If text mentions "semantic web technologies", extract as "Semantic Web"
+- If text mentions "data portability rights", extract as "Data portability"
+- If text mentions "knowledge graphs", extract as "Knowledge Graph"
+- Maximum {max_concepts} concepts per chunk
+- Ignore concepts not in meta-ontology (no author names, menu items, etc.)
+- Only use property names from the meta-ontology list
+- Return EXACT class labels from meta-ontology
+
+JSON format:
 {{
-  "concepts": ["concept1", "concept2", "concept3"],
+  "concepts": ["exact meta-ontology class label 1", "exact label 2"],
   "relationships": [
-    {{"source": "concept1", "property": "property_name", "target": "concept2"}}
+    {{"source": "label1", "property": "property_name", "target": "label2"}}
   ]
 }}
 
-Rules:
-- Maximum {max_concepts} concepts
-- Only use property names from the meta-ontology
-- Only create relationships if explicitly stated or strongly implied in text
-- Use exact concept labels that match meta-ontology classes when possible
-- Return valid JSON only, no explanations"""
+Return valid JSON only, no explanations."""
 
         user_prompt = f"""Extract domain concepts and relationships from this text:
 
@@ -1254,10 +1348,36 @@ Return JSON with concepts and relationships:"""
                 result['relationships'] = []
             
             # Clean concepts (remove explanations)
-            result['concepts'] = [
+            raw_concepts = [
                 c.strip() for c in result['concepts'] 
                 if isinstance(c, str) and c.strip() and '(' not in c
             ][:max_concepts]
+            
+            # CRITICAL: Fuzzy match to meta-ontology classes
+            validated_concepts = []
+            if self.meta_ontology and self.meta_classes:
+                meta_class_labels = list(self.meta_classes.keys())
+                meta_class_labels_lower = [c.lower() for c in meta_class_labels]
+                
+                for concept in raw_concepts:
+                    # Exact match (case-insensitive)
+                    if concept.lower() in meta_class_labels_lower:
+                        idx = meta_class_labels_lower.index(concept.lower())
+                        validated_concepts.append(meta_class_labels[idx])
+                    # Fuzzy match: check if concept is substring of meta-class or vice versa
+                    else:
+                        concept_lower = concept.lower()
+                        for meta_label in meta_class_labels:
+                            meta_lower = meta_label.lower()
+                            # "semantic web technologies" matches "Semantic Web"
+                            if meta_lower in concept_lower or concept_lower in meta_lower:
+                                if meta_label not in validated_concepts:
+                                    validated_concepts.append(meta_label)
+                                break
+                
+                result['concepts'] = validated_concepts
+            else:
+                result['concepts'] = raw_concepts
             
             # Validate relationships
             valid_relationships = []

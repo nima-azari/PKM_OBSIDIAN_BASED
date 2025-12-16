@@ -16,29 +16,54 @@ from fuzzywuzzy import fuzz
 import re
 import numpy as np
 
-# Add parent directory to path
-sys.path.insert(0, str(Path(__file__).parent))
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.web_discovery import WebDiscovery
 
-# Import sentence-transformers for semantic filtering (lazy load)
+# Import semantic models (lazy load) - supports both PyTorch and TensorFlow
 SEMANTIC_MODEL_AVAILABLE = False
 semantic_model = None
+semantic_backend = None  # 'pytorch', 'tensorflow', or None
 
 def load_semantic_model():
-    """Lazy load sentence-transformers model for semantic similarity."""
-    global SEMANTIC_MODEL_AVAILABLE, semantic_model
+    """Lazy load semantic similarity model - tries TensorFlow first, then PyTorch."""
+    global SEMANTIC_MODEL_AVAILABLE, semantic_model, semantic_backend
+    
     if not SEMANTIC_MODEL_AVAILABLE:
+        # Try TensorFlow Hub's Universal Sentence Encoder first (more stable)
+        try:
+            import tensorflow_hub as hub
+            import tensorflow as tf
+            # Suppress TF warnings
+            tf.get_logger().setLevel('ERROR')
+            
+            print("   Loading TensorFlow Hub Universal Sentence Encoder...")
+            semantic_model = hub.load("https://tfhub.dev/google/universal-sentence-encoder/4")
+            SEMANTIC_MODEL_AVAILABLE = True
+            semantic_backend = 'tensorflow'
+            print("✓ Loaded semantic model (TensorFlow - Universal Sentence Encoder)")
+            return True
+        except Exception as e:
+            print(f"   TensorFlow model unavailable: {e}")
+        
+        # Fallback: Try PyTorch-based sentence-transformers
         try:
             from sentence_transformers import SentenceTransformer
-            # Use a model specifically trained for semantic similarity
+            print("   Loading PyTorch sentence-transformers...")
             semantic_model = SentenceTransformer('all-MiniLM-L6-v2')
             SEMANTIC_MODEL_AVAILABLE = True
-            print("✓ Loaded semantic similarity model (all-MiniLM-L6-v2)")
+            semantic_backend = 'pytorch'
+            print("✓ Loaded semantic model (PyTorch - all-MiniLM-L6-v2)")
+            return True
         except Exception as e:
-            print(f"⚠️  Could not load semantic model: {e}")
-            print("   Semantic filtering will be disabled")
-            SEMANTIC_MODEL_AVAILABLE = False
+            print(f"   PyTorch model unavailable: {e}")
+        
+        print("⚠️  No semantic model available - using keyword filtering only")
+        SEMANTIC_MODEL_AVAILABLE = False
+        semantic_backend = None
+        return False
+    
     return SEMANTIC_MODEL_AVAILABLE
 
 
@@ -62,16 +87,32 @@ class AutoSourceDiscovery:
         # Load existing sources for fuzzy matching
         self._load_existing_sources()
     
-    def load_queries_from_report(self, report_path: str) -> List[str]:
-        """Extract search queries from discovery report."""
+    def load_queries_from_report(self, report_path: str) -> List[Dict[str, Any]]:
+        """Extract search queries with coverage scores from discovery report.
+        
+        Returns:
+            List of dicts with keys: 'query', 'topic', 'score' (0-100)
+        """
         
         if self.verbose:
             print(f"\n📄 Loading queries from: {report_path}")
         
-        queries = []
-        
+        # Parse coverage scores first
+        coverage_scores = {}  # topic -> score
         with open(report_path, 'r', encoding='utf-8') as f:
             lines = f.readlines()
+        
+        # Extract coverage scores (e.g., "Vendor Lock-in: LOW (14/100)")
+        for line in lines:
+            if "LOW (" in line or "MEDIUM (" in line or "HIGH (" in line:
+                import re
+                match = re.match(r'\s+(.+?):\s+\w+\s+\((\d+)/100\)', line)
+                if match:
+                    topic = match.group(1).strip()
+                    score = int(match.group(2))
+                    coverage_scores[topic] = score
+        
+        queries = []
         
         # Find "Recommended Search Queries" section
         in_queries_section = False
@@ -92,12 +133,46 @@ class AutoSourceDiscovery:
                     import re
                     match = re.match(r'^\d+\.\s*(.+)$', line)
                     if match:
-                        query = match.group(1).strip()
-                        queries.append(query)
+                        query_text = match.group(1).strip()
+                        
+                        # Try to match query to a topic based on keywords
+                        query_lower = query_text.lower()
+                        matched_topic = None
+                        matched_score = 50  # Default medium priority
+                        
+                        for topic, score in coverage_scores.items():
+                            topic_lower = topic.lower()
+                            # Check if topic keywords appear in query
+                            if topic_lower in query_lower:
+                                matched_topic = topic
+                                matched_score = score
+                                break
+                        
+                        queries.append({
+                            'query': query_text,
+                            'topic': matched_topic or "General",
+                            'score': matched_score
+                        })
         
         if self.verbose:
-            print(f"✓ Loaded {len(queries)} queries")
-            for i, query in enumerate(queries, 1):
+            print(f"✓ Loaded {len(queries)} queries with priorities")
+            for i, q in enumerate(queries, 1):
+                priority = "HIGH" if q['score'] < 30 else "MEDIUM" if q['score'] < 50 else "LOW"
+                print(f"   {i}. [{priority}] {q['query']}")
+            print()
+        
+        return queries
+    
+    def load_queries_from_report_legacy(self, report_path: str) -> List[str]:
+        """Legacy method returning only query strings."""
+        queries_with_meta = self.load_queries_from_report(report_path)
+        return [q['query'] for q in queries_with_meta]
+    
+    def _old_code(self):
+        """Placeholder for old code - can be removed"""
+        if self.verbose:
+            print(f"✓ Loaded {len([])} queries")
+            for i, query in enumerate([], 1):
                 print(f"   {i}. {query}")
         
         return queries
@@ -201,8 +276,20 @@ class AutoSourceDiscovery:
                 print("   ⚠️  No existing sources found for domain embedding")
             return None
         
-        # Compute embeddings using sentence-transformers
-        embeddings = semantic_model.encode(texts, convert_to_numpy=True)
+        # Compute embeddings (backend-specific)
+        try:
+            if semantic_backend == 'tensorflow':
+                # TensorFlow Hub - batch processing
+                embeddings = semantic_model(texts).numpy()
+            elif semantic_backend == 'pytorch':
+                # PyTorch sentence-transformers
+                embeddings = semantic_model.encode(texts, convert_to_numpy=True)
+            else:
+                return None
+        except Exception as e:
+            if self.verbose:
+                print(f"   ⚠️  Failed to compute embeddings: {e}")
+            return None
         
         if len(embeddings) > 0:
             # Average embeddings to represent domain
@@ -218,13 +305,26 @@ class AutoSourceDiscovery:
         return None
     
     def _compute_text_embedding(self, text: str) -> np.ndarray:
-        """Compute embedding for a text using sentence-transformers."""
+        """Compute embedding for text - supports both TensorFlow and PyTorch backends."""
         
         if not SEMANTIC_MODEL_AVAILABLE or not text:
             return None
         
-        embedding = semantic_model.encode([text], convert_to_numpy=True)
-        return embedding[0] if len(embedding) > 0 else None
+        try:
+            if semantic_backend == 'tensorflow':
+                # TensorFlow Hub Universal Sentence Encoder
+                embeddings = semantic_model([text]).numpy()
+                return embeddings[0] if len(embeddings) > 0 else None
+            elif semantic_backend == 'pytorch':
+                # PyTorch sentence-transformers
+                embedding = semantic_model.encode([text], convert_to_numpy=True)
+                return embedding[0] if len(embedding) > 0 else None
+        except Exception as e:
+            if self.verbose:
+                print(f"   Warning: Embedding computation failed: {e}")
+            return None
+        
+        return None
     
     def _semantic_similarity(self, embedding1: np.ndarray, embedding2: np.ndarray) -> float:
         """Compute cosine similarity between two embeddings."""
@@ -242,6 +342,48 @@ class AutoSourceDiscovery:
         
         similarity = dot_product / (norm1 * norm2)
         return float(similarity)
+    
+    def _is_keyword_relevant(self, title: str, snippet: str) -> Tuple[bool, str]:
+        """
+        Fallback keyword-based relevance check when semantic model unavailable.
+        Filters out obviously irrelevant papers based on domain keywords.
+        
+        Returns:
+            Tuple of (is_relevant, reason)
+        """
+        text = f"{title} {snippet}".lower()
+        
+        # Define domain keywords from existing sources
+        domain_keywords = [
+            'data', 'eu', 'regulation', 'gdpr', 'governance', 'quality',
+            'semantic', 'web', 'linked', 'rdf', 'ontology', 'knowledge',
+            'graph', 'interoperability', 'portability', 'vendor', 'lock-in',
+            'cloud', 'api', 'standard', 'compliance', 'policy', 'legal'
+        ]
+        
+        # Irrelevant domains to filter out
+        irrelevant_keywords = [
+            'astrophysics', 'astronomy', 'cosmology', 'dark energy', 'galaxy',
+            'particle physics', 'quantum', 'chemistry', 'biology', 'medical',
+            'clinical', 'patient', 'disease', 'drug', 'therapy', 'genome',
+            'protein', 'molecular', 'neural network', 'image classification',
+            'computer vision', 'robotics', 'autonomous vehicle', 'drone',
+            'cryptocurrency', 'blockchain mining', 'weather', 'climate model',
+            'earthquake', 'geology', 'material science', 'manufacturing'
+        ]
+        
+        # Check for irrelevant keywords first (strong filter)
+        irrelevant_matches = [kw for kw in irrelevant_keywords if kw in text]
+        if len(irrelevant_matches) >= 2:  # At least 2 irrelevant keywords
+            return False, f"Irrelevant domain: {', '.join(irrelevant_matches[:2])}"
+        
+        # Check for domain keyword presence (weak requirement)
+        domain_matches = [kw for kw in domain_keywords if kw in text]
+        if len(domain_matches) >= 1:  # At least 1 domain keyword
+            return True, f"Keyword match: {', '.join(domain_matches[:3])}"
+        
+        # If no clear signal, accept (conservative filtering)
+        return True, "No strong irrelevance signal"
     
     def _is_semantically_relevant(
         self, 
@@ -264,7 +406,8 @@ class AutoSourceDiscovery:
         """
         
         if not SEMANTIC_MODEL_AVAILABLE or self.domain_embedding is None:
-            return True, ""  # Skip if semantic filtering not available
+            # Fallback: Use keyword-based filtering when semantic model unavailable
+            return self._is_keyword_relevant(title, snippet)
         
         # Combine title and snippet for analysis
         text = f"{title}. {snippet[:200]}"
@@ -571,7 +714,7 @@ class AutoSourceDiscovery:
     
     def run_discovery(
         self, 
-        queries: List[str], 
+        queries, 
         max_per_source: int = 5,
         min_quality_score: int = 0,
         filter_duplicates: bool = True,
@@ -585,8 +728,12 @@ class AutoSourceDiscovery:
         """
         Run discovery for all queries with duplicate filtering, semantic filtering, and dynamic query generation.
         
+        Accepts queries as either:
+        - List[str]: Raw query strings
+        - List[Dict]: Dicts with 'query', 'topic', 'score' keys
+        
         Args:
-            queries: List of search queries
+            queries: List of search queries (strings or dicts with metadata)
             max_per_source: Maximum results per source per query
             min_quality_score: Minimum quality score to include (0-10, currently unused)
             filter_duplicates: Whether to filter duplicate sources
@@ -598,8 +745,21 @@ class AutoSourceDiscovery:
             diversity_threshold: Maximum similarity to existing sources (0-1)
             
         Returns:
-            Dict mapping query to list of results
+            Dict mapping query to list of results (with priority metadata)
         """
+        
+        # Convert queries to metadata format if needed
+        query_metadata = {}
+        query_strings = []
+        for q in queries:
+            if isinstance(q, dict):
+                query_str = q['query']
+                query_metadata[query_str] = {'score': q.get('score', 50), 'topic': q.get('topic', 'General')}
+                query_strings.append(query_str)
+            else:
+                query_str = q
+                query_metadata[query_str] = {'score': 50, 'topic': 'General'}
+                query_strings.append(query_str)
         
         if self.verbose:
             print("\n" + "="*60)
@@ -613,6 +773,10 @@ class AutoSourceDiscovery:
                 print(f"   Semantic filtering: ENABLED")
                 print(f"   Domain similarity threshold: {domain_similarity_threshold}")
                 print(f"   Diversity threshold: {diversity_threshold}")
+            print(f"   Query priorities (coverage scores):")
+            for query_str in sorted(query_strings, key=lambda q: query_metadata[q]['score']):
+                priority = "🔴 HIGH" if query_metadata[query_str]['score'] < 30 else "🟡 MEDIUM" if query_metadata[query_str]['score'] < 50 else "🟢 LOW"
+                print(f"      {priority} [{query_metadata[query_str]['score']:3d}] {query_metadata[query_str]['topic']}")
         
         # Initialize semantic filtering
         if semantic_filter:
@@ -621,7 +785,7 @@ class AutoSourceDiscovery:
         
         all_results = {}
         iteration = 0
-        current_queries = queries[:]
+        current_queries = query_strings[:]
         
         while iteration < max_query_iterations:
             iteration += 1
@@ -633,7 +797,8 @@ class AutoSourceDiscovery:
             
             for i, query in enumerate(current_queries, 1):
                 if self.verbose:
-                    print(f"\n[Query {i}/{len(current_queries)}]")
+                    priority = "🔴 HIGH" if query_metadata[query]['score'] < 30 else "🟡 MEDIUM" if query_metadata[query]['score'] < 50 else "🟢 LOW"
+                    print(f"\n[Query {i}/{len(current_queries)}] {priority} [{query_metadata[query]['score']:3d}] {query_metadata[query]['topic']}")
                 
                 results = self.search_all_sources(query, max_per_source)
                 
@@ -672,6 +837,9 @@ class AutoSourceDiscovery:
                                 print(f"   ✅ Accepted: {result['title'][:60]}...")
                                 print(f"      {reason}")
                         
+                        # Add priority score metadata to result
+                        result['priority_score'] = query_metadata[query]['score']
+                        result['priority_topic'] = query_metadata[query]['topic']
                         filtered_results.append(result)
                         
                         # Add to discovered URLs
@@ -816,39 +984,79 @@ Return only the queries, one per line, without numbering."""
             return []
     
     def save_urls(self, output_path: str = "data/discovered_urls.txt"):
-        """Save discovered URLs to a text file."""
+        """Save discovered URLs prioritized by coverage score."""
         
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         
+        # Collect all results with priority scores
+        all_results_with_priority = []
+        for query, results in self.query_results.items():
+            for result in results:
+                result_with_priority = result.copy()
+                # Extract priority metadata if available, otherwise use defaults
+                result_with_priority['priority_score'] = result.get('priority_score', 50)
+                result_with_priority['priority_topic'] = result.get('priority_topic', 'General')
+                result_with_priority['query'] = query
+                all_results_with_priority.append(result_with_priority)
+        
+        # Sort by priority score (lowest = highest priority = biggest gap)
+        all_results_with_priority.sort(key=lambda x: x['priority_score'])
+        
         # Create header with metadata
         lines = []
-        lines.append("# Automatically Discovered Source URLs")
+        lines.append("# Automatically Discovered Source URLs (Priority-Ordered)")
         lines.append(f"# Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         lines.append(f"# Total URLs: {len(self.discovered_urls)}")
         lines.append("#")
+        lines.append("# Priority Legend (based on coverage gap scores):")
+        lines.append("#   🔴 HIGH   (0-30):   Critical gaps - highest priority")
+        lines.append("#   🟡 MEDIUM (30-60):  Moderate gaps - medium priority")
+        lines.append("#   🟢 LOW    (60-100): Minor gaps - lower priority")
+        lines.append("#")
         lines.append("# Instructions:")
-        lines.append("#   1. Review URLs below")
+        lines.append("#   1. Review URLs below (already sorted by priority)")
         lines.append("#   2. Remove irrelevant URLs (delete lines)")
-        lines.append("#   3. Run: python import_urls.py data/discovered_urls.txt")
+        lines.append("#   3. Run: python import_urls.py " + str(output_path))
         lines.append("#")
         lines.append("")
         
-        # Add URLs grouped by query
-        for query, results in self.query_results.items():
-            lines.append(f"# Query: {query}")
-            lines.append(f"# Found {len(results)} results")
+        # Add URLs sorted by priority
+        current_topic = None
+        for result in all_results_with_priority:
+            topic = result['priority_topic']
+            score = result['priority_score']
             
-            for result in results:
-                lines.append(f"# [{result['source']}] {result['title']}")
-                lines.append(result['url'])
+            if topic != current_topic:
                 lines.append("")
+                priority_label = "🔴 HIGH" if score < 30 else "🟡 MEDIUM" if score < 60 else "🟢 LOW"
+                lines.append(f"# {priority_label} PRIORITY - {topic} (coverage: {score}/100)")
+                lines.append(f"# Query: {result['query']}")
+                lines.append("#")
+                current_topic = topic
+            
+            lines.append(f"# [{result['source']}] {result['title']}")
+            lines.append(result['url'])
+            lines.append("")
         
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write("\n".join(lines))
         
         if self.verbose:
-            print(f"\n✅ Saved {len(self.discovered_urls)} URLs to: {output_path}")
+            print(f"\n✅ Saved {len(self.discovered_urls)} prioritized URLs to: {output_path}")
+            print(f"\nURLs organized by priority (coverage gap):")
+            priority_counts = {'HIGH': 0, 'MEDIUM': 0, 'LOW': 0}
+            for result in all_results_with_priority:
+                score = result['priority_score']
+                if score < 30:
+                    priority_counts['HIGH'] += 1
+                elif score < 60:
+                    priority_counts['MEDIUM'] += 1
+                else:
+                    priority_counts['LOW'] += 1
+            print(f"   🔴 HIGH priority:   {priority_counts['HIGH']} URLs")
+            print(f"   🟡 MEDIUM priority: {priority_counts['MEDIUM']} URLs")
+            print(f"   🟢 LOW priority:    {priority_counts['LOW']} URLs")
             print(f"\nNext steps:")
             print(f"   1. Review: {output_path}")
             print(f"   2. Remove unwanted URLs")

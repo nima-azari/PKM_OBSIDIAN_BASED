@@ -66,11 +66,30 @@ def main():
     print("✅ Meta-ontology generated successfully!")
     print("="*60)
     print(f"\n📁 OUTPUT: {meta_path}")
+    
+    # Auto-enhance: Run LLM evaluation to connect disconnected nodes
+    print(f"\n🔗 Auto-enhancing meta-ontology (connecting isolated nodes)...")
+    try:
+        import subprocess
+        result = subprocess.run(
+            ['python', 'scripts/evaluate_meta_ontology.py', str(output_path), '--threshold', '0.6'],
+            capture_output=True,
+            text=True,
+            cwd=Path(__file__).parent.parent
+        )
+        if result.returncode == 0:
+            print("   ✅ Auto-enhancement complete")
+        else:
+            print(f"   ⚠️  Auto-enhancement skipped (no disconnected nodes or error)")
+    except Exception as e:
+        print(f"   ⚠️  Auto-enhancement failed: {e}")
+    
     print(f"\n⚠️  IMPORTANT: Review and edit the meta-ontology before Step 2!")
     print(f"\nNext steps:")
     print(f"1. Review: {meta_path}")
-    print(f"2. Edit: Add/remove/refine concepts and relationships")
-    print(f"3. Build graph: python build_graph.py --meta-ontology {meta_path}")
+    print(f"2. Visualize: Run cells in data/graphs/visualize_graphs.ipynb")
+    print(f"3. Edit: Add/remove/refine concepts and relationships if needed")
+    print(f"4. Build graph: python scripts/build_graph_with_meta.py")
     print("\n")
 
 

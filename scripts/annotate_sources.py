@@ -31,10 +31,11 @@ class SourceAnnotator:
         5: "CRITICAL - Essential primary source"
     }
     
-    def __init__(self, sources_dir: str = "data/sources", annotations_file: str = "data/source_annotations.yaml"):
+    def __init__(self, sources_dir: str = "data/sources", annotations_file: str = "data/source_annotations.yaml", verbose: bool = False):
         self.sources_dir = Path(sources_dir)
         self.annotations_file = Path(annotations_file)
         self.annotations = self._load_annotations()
+        self.verbose = verbose
     
     def _load_annotations(self) -> Dict[str, Dict]:
         """Load existing annotations."""
@@ -71,10 +72,10 @@ class SourceAnnotator:
     
     def get_unannotated_sources(self) -> List[Path]:
         """Get list of sources without annotations."""
-        all_sources = list(self.sources_dir.glob('*.md')) + \
-                     list(self.sources_dir.glob('*.txt')) + \
-                     list(self.sources_dir.glob('*.pdf')) + \
-                     list(self.sources_dir.glob('*.html'))
+        all_sources = list(self.sources_dir.glob('**/*.md')) + \
+                     list(self.sources_dir.glob('**/*.txt')) + \
+                     list(self.sources_dir.glob('**/*.pdf')) + \
+                     list(self.sources_dir.glob('**/*.html'))
         
         unannotated = []
         for source in all_sources:
@@ -139,11 +140,29 @@ class SourceAnnotator:
         # Get rating
         while True:
             try:
-                rating_input = input("\n⭐ Enter importance (1-5, or 's' to skip): ").strip()
+                rating_input = input("\n⭐ Enter importance (1-5, 's' to skip/delete, 'q' to quit): ").strip().lower()
                 
-                if rating_input.lower() == 's':
-                    print("   Skipped")
-                    return existing if existing else None
+                if rating_input == 'q':
+                    print("   ⏹️  Quitting annotation process")
+                    return 'QUIT'
+                
+                if rating_input == 's':
+                    # Skip means delete the file (bad source)
+                    confirm = input("   ⚠️  Delete this file? (y/n): ").strip().lower()
+                    if confirm == 'y':
+                        try:
+                            filepath.unlink()
+                            # Remove from annotations if it was there
+                            if filepath.name in self.annotations:
+                                del self.annotations[filepath.name]
+                            print(f"   🗑️  Deleted: {filepath.name}")
+                            return 'DELETED'
+                        except Exception as e:
+                            print(f"   ❌ Error deleting file: {e}")
+                            return None
+                    else:
+                        print("   Skipped (file kept)")
+                        return existing if existing else None
                 
                 rating = int(rating_input)
                 if 1 <= rating <= 5:
@@ -151,7 +170,7 @@ class SourceAnnotator:
                 else:
                     print("   ⚠️  Please enter a number between 1 and 5")
             except ValueError:
-                print("   ⚠️  Please enter a valid number or 's' to skip")
+                print("   ⚠️  Please enter a valid number, 's' to skip/delete, or 'q' to quit")
         
         # Get optional note
         note = input("\n📝 Add note (optional, press Enter to skip): ").strip()
@@ -179,10 +198,10 @@ class SourceAnnotator:
             sources = self.get_unannotated_sources()
             print(f"\n📚 Found {len(sources)} unannotated sources")
         else:
-            all_sources = list(self.sources_dir.glob('*.md')) + \
-                         list(self.sources_dir.glob('*.txt')) + \
-                         list(self.sources_dir.glob('*.pdf')) + \
-                         list(self.sources_dir.glob('*.html'))
+            all_sources = list(self.sources_dir.glob('**/*.md')) + \
+                         list(self.sources_dir.glob('**/*.txt')) + \
+                         list(self.sources_dir.glob('**/*.pdf')) + \
+                         list(self.sources_dir.glob('**/*.html'))
             sources = all_sources
             print(f"\n📚 Found {len(sources)} total sources")
         
@@ -191,40 +210,50 @@ class SourceAnnotator:
             return
         
         print(f"\n🎯 Starting annotation process...")
-        print("   (You can press 's' to skip any source)\n")
+        print("   (Press 's' to delete bad sources, 'q' to quit)\n")
         
         annotated_count = 0
         skipped_count = 0
+        deleted_count = 0
+        already_annotated_count = 0
         
         for i, source in enumerate(sources, 1):
+            # Skip if already annotated (unless new_only=False which means re-annotate)
+            if not new_only and source.name in self.annotations:
+                already_annotated_count += 1
+                if self.verbose:
+                    existing = self.annotations[source.name]
+                    print(f"\n[{i}/{len(sources)}] ✓ Already annotated: {source.name} ({existing['importance']}/5)")
+                continue
+            
             print(f"\n{'='*70}")
             print(f"Progress: [{i}/{len(sources)}]")
             
             result = self.annotate_source(source, interactive=True)
             
-            if result:
+            # Check for quit signal
+            if result == 'QUIT':
+                print("\n⚠️  Annotation process stopped by user")
+                break
+            
+            if result == 'DELETED':
+                deleted_count += 1
+            elif result:
                 annotated_count += 1
             else:
                 skipped_count += 1
             
             # Save after each annotation (in case of interruption)
             self._save_annotations()
-            
-            # Ask to continue
-            if i < len(sources):
-                continue_input = input("\nContinue to next source? (y/n/q to quit): ").strip().lower()
-                if continue_input == 'q':
-                    print("\n⚠️  Annotation process interrupted by user")
-                    break
-                elif continue_input == 'n':
-                    print("\n⚠️  Stopping annotation process")
-                    break
         
         print(f"\n{'='*70}")
         print(f"✅ Annotation Complete!")
-        print(f"   Annotated: {annotated_count}")
+        print(f"   Newly annotated: {annotated_count}")
         print(f"   Skipped: {skipped_count}")
-        print(f"   Total: {len(self.annotations)} sources in database")
+        print(f"   Deleted (bad sources): {deleted_count}")
+        if already_annotated_count > 0:
+            print(f"   Already annotated (skipped): {already_annotated_count}")
+        print(f"   Total in database: {len(self.annotations)} sources")
         print(f"{'='*70}\n")
     
     def show_statistics(self):

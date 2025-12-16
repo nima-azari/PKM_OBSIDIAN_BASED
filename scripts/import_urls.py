@@ -8,13 +8,15 @@ Supports batch processing with progress tracking and error handling.
 
 import sys
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from datetime import datetime
 import time
 import re
+import requests
+import json
 
 # Add parent directory to path
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.web_discovery import WebDiscovery
 
@@ -28,6 +30,11 @@ class URLImporter:
         
         self.verbose = verbose
         self.web_discovery = WebDiscovery()
+        
+        self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        })
         
         self.stats = {
             'total': 0,
@@ -95,6 +102,92 @@ class URLImporter:
             print(f"✓ Loaded {len(urls)} URLs")
         
         return urls
+    
+    def _extract_arxiv_id(self, url: str) -> Optional[str]:
+        """Extract arXiv ID from URL."""
+        match = re.search(r'arxiv\.org/abs/([\w\.]+)', url)
+        return match.group(1) if match else None
+    
+    def _get_arxiv_metadata(self, arxiv_id: str) -> Optional[Dict[str, str]]:
+        """Get metadata from arXiv API."""
+        try:
+            api_url = f"http://export.arxiv.org/api/query?id_list={arxiv_id}"
+            response = self.session.get(api_url, timeout=10)
+            response.raise_for_status()
+            
+            # Parse XML response
+            import xml.etree.ElementTree as ET
+            root = ET.fromstring(response.content)
+            
+            # Extract title and authors
+            ns = {'atom': 'http://www.w3.org/2005/Atom'}
+            entry = root.find('.//atom:entry', ns)
+            
+            if entry is not None:
+                title = entry.find('atom:title', ns)
+                authors = entry.findall('atom:author/atom:name', ns)
+                
+                return {
+                    'title': title.text.strip().replace('\n', ' ') if title is not None else arxiv_id,
+                    'authors': ', '.join([a.text for a in authors]) if authors else 'Unknown',
+                    'pdf_url': f"https://arxiv.org/pdf/{arxiv_id}.pdf"
+                }
+        except Exception as e:
+            if self.verbose:
+                print(f"  Warning: Could not fetch arXiv metadata: {e}")
+        
+        return None
+    
+    def _get_openalex_pdf(self, doi: str) -> Optional[Dict[str, str]]:
+        """Get PDF URL and metadata from OpenAlex API for a DOI."""
+        try:
+            # OpenAlex API endpoint
+            api_url = f"https://api.openalex.org/works/https://doi.org/{doi}"
+            params = {'mailto': 'researcher@example.com'}  # Polite pool
+            
+            response = self.session.get(api_url, params=params, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            
+            # Look for open access PDF
+            if data.get('open_access', {}).get('is_oa'):
+                pdf_url = data.get('open_access', {}).get('oa_url')
+                
+                if pdf_url:
+                    return {
+                        'title': data.get('title', doi),
+                        'authors': ', '.join([a.get('author', {}).get('display_name', '') 
+                                            for a in data.get('authorships', [])[:3]]),
+                        'pdf_url': pdf_url
+                    }
+        except Exception as e:
+            if self.verbose:
+                print(f"  Info: OpenAlex lookup failed: {e}")
+        
+        return None
+    
+    def _download_pdf(self, url: str, output_path: Path) -> bool:
+        """Download PDF from URL."""
+        try:
+            response = self.session.get(url, timeout=30, stream=True)
+            response.raise_for_status()
+            
+            # Check if it's actually a PDF
+            content_type = response.headers.get('Content-Type', '')
+            if 'pdf' not in content_type.lower():
+                if self.verbose:
+                    print(f"  Warning: Content-Type is {content_type}, not PDF")
+                return False
+            
+            with open(output_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            
+            return True
+        except Exception as e:
+            if self.verbose:
+                print(f"  Error downloading PDF: {e}")
+            return False
     
     def sanitize_filename(self, title: str) -> str:
         """Convert title to safe filename."""
@@ -197,7 +290,7 @@ class URLImporter:
     
     def import_url(self, url_info: Dict[str, str]) -> Dict[str, Any]:
         """
-        Import single URL.
+        Import single URL - tries PDF download for DOI/arXiv links first.
         
         Args:
             url_info: Dict with 'url', 'query', 'title'
@@ -209,7 +302,83 @@ class URLImporter:
         url = url_info['url']
         
         try:
-            # Extract article
+            # Strategy 1: Try arXiv PDF download
+            arxiv_id = self._extract_arxiv_id(url)
+            if arxiv_id:
+                metadata = self._get_arxiv_metadata(arxiv_id)
+                if metadata:
+                    # Generate filename from title
+                    safe_title = self.sanitize_filename(metadata['title'])
+                    filename = f"{safe_title}.pdf"
+                    filepath = self.sources_dir / filename
+                    
+                    # Handle duplicate filenames
+                    counter = 1
+                    while filepath.exists():
+                        filename = f"{safe_title}_{counter}.pdf"
+                        filepath = self.sources_dir / filename
+                        counter += 1
+                    
+                    # Download PDF
+                    if self._download_pdf(metadata['pdf_url'], filepath):
+                        return {
+                            'success': True,
+                            'url': url,
+                            'filepath': str(filepath),
+                            'title': metadata['title']
+                        }
+            
+            # Strategy 2: Try OpenAlex for DOI links
+            doi_match = re.search(r'doi\.org/(.+)$', url)
+            if doi_match:
+                doi = doi_match.group(1)
+                metadata = self._get_openalex_pdf(doi)
+                if metadata and metadata.get('pdf_url'):
+                    # Generate filename from title
+                    safe_title = self.sanitize_filename(metadata['title'])
+                    filename = f"{safe_title}.pdf"
+                    filepath = self.sources_dir / filename
+                    
+                    # Handle duplicate filenames
+                    counter = 1
+                    while filepath.exists():
+                        filename = f"{safe_title}_{counter}.pdf"
+                        filepath = self.sources_dir / filename
+                        counter += 1
+                    
+                    # Download PDF
+                    if self._download_pdf(metadata['pdf_url'], filepath):
+                        return {
+                            'success': True,
+                            'url': url,
+                            'filepath': str(filepath),
+                            'title': metadata['title']
+                        }
+            
+            # Strategy 3: Try direct PDF download if URL ends with .pdf
+            if url.lower().endswith('.pdf'):
+                # Extract filename from URL
+                url_filename = url.split('/')[-1]
+                safe_filename = self.sanitize_filename(url_filename)
+                filepath = self.sources_dir / safe_filename
+                
+                # Handle duplicate filenames
+                counter = 1
+                base_name = filepath.stem
+                while filepath.exists():
+                    filepath = self.sources_dir / f"{base_name}_{counter}.pdf"
+                    counter += 1
+                
+                # Download PDF
+                if self._download_pdf(url, filepath):
+                    return {
+                        'success': True,
+                        'url': url,
+                        'filepath': str(filepath),
+                        'title': filepath.stem
+                    }
+            
+            # Strategy 4: Fall back to web extraction (for HTML pages)
             article = self.web_discovery.extract_article(url)
             
             if not article:
@@ -219,7 +388,7 @@ class URLImporter:
                     'error': 'Failed to extract content'
                 }
             
-            # Save article
+            # Save article as markdown
             filepath = self.save_article(article, query_context=url_info.get('query'))
             
             return {

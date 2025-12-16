@@ -15,19 +15,24 @@ The script will:
 4. Export to data/graphs/knowledge_graph_meta.ttl
 """
 
+import sys
 from pathlib import Path
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 from core.rag_engine import VaultRAG
 
 
 def main():
-    meta_ontology_path = "data/graphs/meta-ont-eu-linkeddata.ttl"
-    output_path = "data/graphs/knowledge_graph_meta.ttl"
+    meta_ontology_path = "data/graphs/meta_ontology.ttl"
+    output_path = "data/graphs/knowledge_graph.ttl"
     
     # Check if meta-ontology exists
     if not Path(meta_ontology_path).exists():
         print(f"❌ Meta-ontology not found: {meta_ontology_path}")
         print("\nPlease ensure your meta-ontology TTL file exists.")
-        print("Example: data/graphs/meta-ont-eu-linkeddata.ttl")
+        print("Run: python scripts/generate_meta_ontology.py")
         return
     
     print("\n" + "="*60)

@@ -11,8 +11,8 @@ from rdflib.namespace import SKOS
 from typing import Dict, List, Set, Tuple
 from collections import defaultdict
 
-# Add parent directory to path
-sys.path.insert(0, str(Path(__file__).parent))
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.web_discovery import WebDiscovery
 from openai import OpenAI
