@@ -1069,6 +1069,36 @@ python discover_sources.py
 #   - 5 targeted search queries
 ```
 
+**Step 1.5: Seed 0% Coverage Domains (CRITICAL IF NEEDED)**
+
+⚠️ **STOP HERE if any domains show 0% coverage!**
+
+**Problem:** Semantic filtering uses embeddings from existing sources. With 0% coverage, domain embedding is weak → accepts off-topic papers (machine learning, astrophysics instead of EU policy).
+
+**Solution:**
+```bash
+# 1. Identify 0% domains from discovery_report.txt
+# Example: Cloud Computing (0/100), Data Quality (0/100)
+
+# 2. Download 1-2 authoritative sources per domain
+# EU Data Act: EUR-Lex official texts
+# Cloud Computing: NIST standards, ISO frameworks
+# Data Quality: W3C DQV, academic surveys
+
+# 3. Add to sources
+cp ~/Downloads/EU_Data_Act_Official.pdf data/sources/
+
+# 4. Rebuild graph to strengthen domain embedding
+python build_graph_with_meta.py
+
+# 5. Re-analyze gaps
+python discover_sources.py
+
+# 6. Verify domains no longer at 0% before proceeding
+```
+
+**See full guide:** `docs/SEED_SOURCES_GUIDE.md`
+
 **Step 2: Automated Discovery**
 ```bash
 # Search multiple APIs with semantic filtering
@@ -1375,16 +1405,65 @@ def _read_docx(self, filepath: Path) -> str:
         return ""
 ```
 
-### User Research Workflow
+### User Research Workflow Loop
 
-For complete research pipeline guide, see: `RESEARCH_PIPELINE_GUIDE.txt`
+**Complete Iterative Discovery Pipeline:**
 
-**Quick Reference:**
-1. Add sources to `data/sources/` (MD, PDF, HTML, TXT)
-2. `python build_graph.py` - Build knowledge graph
-3. `python test_chat.py` - Test retrieval
-4. Research session with graph-guided retrieval
-5. `python generate_article_from_graph.py` - Synthesize insights
-6. Iterate: gaps → new sources → rebuild → research
+```mermaid
+graph TB
+    subgraph "Phase 1: Initialize (First Time)"
+        A[📚 Add Sources<br/>data/sources/] --> B[⭐ Annotate<br/>scripts/annotate_sources.py]
+        B --> C[🧠 Generate Meta-Ontology<br/>scripts/generate_meta_ontology.py]
+        C --> D[👁️ Visualize Meta<br/>scripts/visualize_meta_ontology.py]
+        D --> E[🔗 Auto-Enhance Meta<br/>scripts/evaluate_meta_ontology.py]
+        E --> F[📝 Review & Edit Meta<br/>data/graphs/meta_ontology.ttl]
+        F --> G[🏗️ Build Knowledge Graph<br/>scripts/build_graph_with_meta.py]
+    end
+    
+    subgraph "Phase 2: Discover Gaps"
+        G --> H[🔍 Analyze Coverage<br/>scripts/discover_sources.py]
+        H --> I[🌐 Auto-Discover Sources<br/>scripts/auto_discover_sources.py]
+    end
+    
+    subgraph "Phase 3: Integrate"
+        I --> J[📋 Curate URLs<br/>data/discovered_urls.txt]
+        J --> K[📥 Import Sources<br/>scripts/import_urls.py]
+        K --> L[⭐ Re-Annotate<br/>scripts/annotate_sources.py]
+        L --> M[🏗️ Rebuild Graph<br/>scripts/build_graph_with_meta.py]
+    end
+    
+    M --> N{Coverage<br/>Satisfactory?}
+    N -->|No| H
+    N -->|Yes| O[📝 Generate Article<br/>scripts/generate_article_from_graph.py]
+    O --> P[💬 Chat/Research<br/>scripts/interactive_chat.py]
+    P --> Q[🔄 Continue Research]
+    Q --> H
+```
+
+**Workflow Steps:**
+
+**Phase 1 - Initialize (First Time Only):**
+1. `python scripts/annotate_sources.py` - Rate sources 1-5
+2. `python scripts/generate_meta_ontology.py` - Extract domain structure
+3. `python scripts/visualize_meta_ontology.py` - See ontology graph
+4. `python scripts/evaluate_meta_ontology.py` - Auto-connect isolated nodes
+5. Edit `data/graphs/meta_ontology.ttl` - Manual refinement
+6. `python scripts/build_graph_with_meta.py` - Build knowledge graph
+
+**Phase 2 - Discover (Iterative):**
+7. `python scripts/discover_sources.py` - Find coverage gaps
+8. `python scripts/auto_discover_sources.py --mode gaps` - Auto-find sources
+
+**Phase 3 - Integrate (Iterative):**
+9. Review & edit `data/discovered_urls.txt`
+10. `python scripts/import_urls.py data/discovered_urls.txt`
+11. `python scripts/annotate_sources.py` (new sources only)
+12. `python scripts/build_graph_with_meta.py` (rebuild with all)
+
+**Phase 4 - Research:**
+13. `python scripts/generate_article_from_graph.py data/graphs/knowledge_graph.ttl`
+14. `python scripts/interactive_chat.py`
+
+**Iterate Phases 2-3 until coverage satisfactory (typically 2-4 cycles)**
 
 **Current Status:** Production-ready, enterprise-grade GraphRAG system achieving 75/100 compliance score. Phase 2 implementation pending.

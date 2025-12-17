@@ -1,7 +1,0 @@
-jQuery(document).ready(function($){var timezone=moment.tz.guess();function adjustDateTime(){$(".event-details").each(function(){var $this=$(this);var startDate=$this.find(".event-start-date").val();var startTime=$this.find(".event-start-time").val();var endDate=$this.find(".event-end-date").val();var endTime=$this.find(".event-end-time").val();var outputDate="";var outputTime="";var fullOutput="";if(startDate){var startDateTime=moment.tz(startDate+(startTime?" "+startTime:""),"MMMM D hh:mm A","Europe/Sofia").tz(timezone);outputDate+=startDateTime.format("MMMM D");if(startTime){outputTime+=startDateTime.format("hh:mm A")}
-if(endDate&&startDate!==endDate){var endDateTime=moment.tz(endDate+(endTime?" "+endTime:""),"MMMM D hh:mm A","Europe/Sofia").tz(timezone);outputDate+=" — "+endDateTime.format("MMMM D")}
-if(endTime){var endDateTime=moment.tz(endDate?endDate+" "+endTime:startDate+" "+endTime,"MMMM D hh:mm A","Europe/Sofia").tz(timezone);outputTime+=" — "+endDateTime.format("hh:mm A")}
-if(startTime||endTime){var timezoneAbbr=startDateTime.format("z");outputTime+=" "+timezoneAbbr}}
-if($this.hasClass("date-hero")){fullOutput=outputDate+(outputTime?", "+outputTime:"")}else if($this.hasClass("date-content")){fullOutput=outputDate+(outputTime?'<br><span class="time-on-new-line">'+outputTime+"</span>":"")}
-$this.find(".date-time-content").html(fullOutput)})}
-adjustDateTime()})

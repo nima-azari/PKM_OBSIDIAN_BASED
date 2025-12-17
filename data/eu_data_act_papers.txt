@@ -1,0 +1,13 @@
+# EU Data Act Academic Papers (Seed Sources)
+
+# The EU Data Act in Context: A Legal Assessment
+# Federico Casolari, Carlotta Buttaboni & Luciano Floridi
+https://doi.org/10.1093/ijlit/eaae005
+
+# Governance of IoT Data: Why the EU Data Act Will Not Fulfill Its Objectives
+# Wolfgang Kerber
+https://doi.org/10.1093/grurint/ikac107
+
+# The EU Data Act and Electricity Consumer Participation
+# Sofia Nicolai & Max Münchmeyer
+https://doi.org/10.1080/02646811.2025.2485725

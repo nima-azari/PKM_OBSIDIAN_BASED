@@ -844,9 +844,27 @@ class AutoSourceDiscovery:
                 print(f"   Domain similarity threshold: {domain_similarity_threshold}")
                 print(f"   Diversity threshold: {diversity_threshold}")
             print(f"   Query priorities (coverage scores):")
+            zero_coverage_topics = set()
             for query_str in sorted(query_strings, key=lambda q: query_metadata[q]['score']):
                 priority = "🔴 HIGH" if query_metadata[query_str]['score'] < 30 else "🟡 MEDIUM" if query_metadata[query_str]['score'] < 50 else "🟢 LOW"
                 print(f"      {priority} [{query_metadata[query_str]['score']:3d}] {query_metadata[query_str]['topic']}")
+                if query_metadata[query_str]['score'] == 0:
+                    zero_coverage_topics.add(query_metadata[query_str]['topic'])
+            
+            # Critical warning for 0% coverage domains
+            if zero_coverage_topics and semantic_filter and len(self.existing_sources) < 20:
+                print(f"\n   ⚠️  CRITICAL WARNING: {len(zero_coverage_topics)} domain(s) have 0% coverage:")
+                for topic in sorted(zero_coverage_topics):
+                    print(f"      - {topic}")
+                print(f"\n   🚨 RECOMMENDATION: Manually add 1-2 high-quality seed sources first!")
+                print(f"      1. Download official documents from EUR-Lex or domain authorities")
+                print(f"      2. Save to data/sources/")
+                print(f"      3. Run: python scripts/build_graph_with_meta.py")
+                print(f"      4. Then re-run this discovery script")
+                print(f"\n   Why? Semantic filtering uses embeddings from existing {len(self.existing_sources)} sources.")
+                print(f"   With 0% coverage in these domains, filtering may accept off-topic papers")
+                print(f"   (e.g., machine learning, astrophysics instead of EU law/policy).")
+                print(f"\n   Threshold: 0.40+ recommended for seeded domains, 0.25-0.35 for broad search.\n")
         
         # Initialize semantic filtering
         if semantic_filter:

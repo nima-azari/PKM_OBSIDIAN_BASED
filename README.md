@@ -4,6 +4,22 @@ A powerful, directory-based knowledge management system with RAG (Retrieval-Augm
 
 ## 🚀 Quick Start
 
+```mermaid
+graph LR
+    A[📚 Sources] --> B[⭐ Annotate]
+    B --> C[🧠 Meta-Ontology]
+    C --> D[👁️ Visualize]
+    D --> E[🔗 Enhance]
+    E --> F[🏗️ Build Graph]
+    F --> G[🔍 Find Gaps]
+    G --> H[🌐 Discover]
+    H --> I[📥 Import]
+    I --> J{Done?}
+    J -->|No| B
+    J -->|Yes| K[📝 Article]
+    K --> L[💬 Chat]
+```
+
 **Installation:**
 ```bash
 pip install -r requirements.txt
@@ -12,10 +28,47 @@ pip install -r requirements.txt
 # OPENAI_API_KEY=sk-your-key-here
 ```
 
-**Get Started:**
-1. Drop files in `data/sources/`
-2. Run `python server.py`
-3. Open http://localhost:5000
+**Complete Workflow (First Time):**
+```bash
+# 1. Annotate your sources (rate 1-5)
+python scripts/annotate_sources.py
+
+# 2. Generate meta-ontology from sources
+python scripts/generate_meta_ontology.py
+
+# 3. Visualize & provide feedback
+python scripts/visualize_meta_ontology.py
+# → Opens browser, collect your feedback
+
+# 4. Auto-enhance with LLM
+python scripts/evaluate_meta_ontology.py
+# → Connects isolated nodes based on feedback
+
+# 5. Build knowledge graph
+python scripts/build_graph_with_meta.py
+
+# 6. Discover knowledge gaps
+python scripts/discover_sources.py
+
+# 7. Find new sources (gaps mode)
+python scripts/auto_discover_sources.py --mode gaps --semantic-filter
+
+# 8. Import discovered sources
+python scripts/import_urls.py data/discovered_urls.txt
+
+# 9. Repeat steps 1-8 until satisfied
+
+# 10. Generate synthesis article
+python scripts/generate_article_from_graph.py data/graphs/knowledge_graph.ttl
+
+# 11. Interactive research chat
+python scripts/interactive_chat.py
+```
+
+**Quick Start (Skip Setup):**
+```bash
+python server.py  # Web UI at http://localhost:5000
+```
 
 **Full documentation:** See [docs/QUICKSTART.md](docs/QUICKSTART.md)
 
@@ -105,6 +158,15 @@ python server.py
 # 1. Identify gaps
 python scripts/discover_sources.py
 
+# 1.5 🚨 CRITICAL: Seed 0% Coverage Domains (if needed)
+# If discovery_report.txt shows domains at 0% coverage:
+#   - Manually download 1-2 authoritative sources (EUR-Lex, official docs)
+#   - Save to data/sources/
+#   - Run: python scripts/build_graph_with_meta.py
+#   - This strengthens domain embedding for semantic filtering
+# Why? Without domain sources, filtering accepts off-topic papers
+# (e.g., astrophysics, machine learning instead of EU policy)
+
 # 2. Search 8 APIs
 python scripts/auto_discover_sources.py --report data/discovery_report.txt
 
@@ -153,6 +215,8 @@ python tests/integration/test_part4_pipeline.py
 
 ## 📚 Documentation
 
+- **[QUICKSTART_WORKFLOW.md](QUICKSTART_WORKFLOW.md)** - Complete workflow guide with all 11 steps
+- **[docs/SEED_SOURCES_GUIDE.md](docs/SEED_SOURCES_GUIDE.md)** - ⚠️ Critical: How to handle 0% coverage domains
 - **[docs/QUICKSTART.md](docs/QUICKSTART.md)** - 5 detailed usage paths
 - **[docs/README.md](docs/README.md)** - Complete feature reference (850+ lines)
 - **[docs/SOURCE_DISCOVERY_EXPANSION_COMPLETE.md](docs/SOURCE_DISCOVERY_EXPANSION_COMPLETE.md)** - 8-API technical deep-dive

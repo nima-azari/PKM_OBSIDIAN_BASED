@@ -149,6 +149,83 @@ jupyter notebook data/graphs/visualize_graphs.ipynb
 
 #### Step 9: Analyze Coverage Gaps
 ```powershell
+python scripts/discover_sources.py
+
+# Outputs:
+# - Coverage score per meta-ontology class (0-100)
+# - Identifies classes with <50% coverage
+# - Generates 5 targeted search queries
+# - Saves to: data/discovery_report.txt
+```
+
+**Review the report:**
+```powershell
+cat data/discovery_report.txt
+```
+
+Look for:
+- **0% coverage classes**: Critical - need manual seeding! ⚠️
+- **<30% coverage**: High priority for discovery
+- **30-60% coverage**: Medium priority
+- **>60% coverage**: Good, but can be improved
+
+#### Step 9.5: Seed 0% Coverage Domains (CRITICAL IF NEEDED)
+
+⚠️ **IMPORTANT:** If any domains have **0% coverage**, DO NOT run auto-discovery yet!
+
+**Why?** Semantic filtering uses embeddings from existing sources. With 0% coverage, the domain embedding is too weak → accepts off-topic papers (machine learning, astrophysics instead of EU policy).
+
+**Solution: Manual Seeding**
+
+1. **Identify 0% domains from discovery report:**
+   ```
+   Coverage Analysis:
+     Cloud Computing: 0/100 ⚠️
+     Data Quality: 0/100 ⚠️
+     EU Data Act: 0/100 ⚠️
+   ```
+
+2. **Download 1-2 authoritative seed sources per domain:**
+   
+   **For EU Data Act:**
+   - Official EU Data Act text: https://eur-lex.europa.eu/
+   - EU Commission impact assessment
+   
+   **For Cloud Computing:**
+   - NIST Cloud Computing standards
+   - ISO/IEC frameworks
+   
+   **For Data Quality:**
+   - W3C Data Quality Vocabulary (DQV)
+   - Academic survey papers
+
+3. **Add to sources:**
+   ```powershell
+   cp ~/Downloads/EU_Data_Act_Official.pdf data/sources/
+   cp ~/Downloads/NIST_Cloud_Computing.pdf data/sources/
+   ```
+
+4. **Rebuild knowledge graph:**
+   ```powershell
+   python scripts/build_graph_with_meta.py
+   ```
+
+5. **Re-analyze gaps:**
+   ```powershell
+   python scripts/discover_sources.py
+   ```
+
+6. **Verify domains no longer at 0%:**
+   ```
+   Coverage Analysis:
+     Cloud Computing: 25/100 ✓ (now seeded)
+     Data Quality: 18/100 ✓ (now seeded)
+   ```
+
+**See full guide:** [docs/SEED_SOURCES_GUIDE.md](docs/SEED_SOURCES_GUIDE.md)
+
+#### Step 10: Auto-Discover Sources
+```powershell
 # Run gap analysis
 python scripts/discover_sources.py
 

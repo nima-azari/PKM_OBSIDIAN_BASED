@@ -1,3 +1,0 @@
-const setCharacterNum=(max,input,counter)=>counter.textContent=`${max - input.value.length} characters left.`;const characterCounter=()=>{const counter=document.querySelector('.ott-max-character-counter');const input=document.querySelector('#ott-search-input');if(!counter||!input)return;const faq=document.querySelectorAll('.ott-link-box');const max=input.getAttribute('maxlength');setCharacterNum(max,input,counter);faq.forEach(el=>{el.addEventListener('click',()=>{counter.textContent=max;setCharacterNum(max,input,counter)})})
-input.addEventListener('input',()=>{setCharacterNum(max,input,counter)})}
-document.addEventListener('DOMContentLoaded',()=>{characterCounter()})

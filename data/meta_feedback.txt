@@ -1,0 +1,5 @@
+# Meta-Ontology Feedback
+# Generated: meta_ontology.ttl
+
+AUTO_CONNECT_ISOLATED: False
+

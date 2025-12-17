@@ -43,12 +43,33 @@ def ask():
         if not question:
             return jsonify({'error': 'No question provided'}), 400
         
-        print(f"\n[API] Received question: {question}")
+        
+        print(f"\n{'='*80}")
+        print(f"[API] 📨 Received question: {question}")
+        print(f"{'='*80}")
+        
+        # Measure time
+        import time
+        start_time = time.time()
+        
+        print("[ENGINE] 🔍 Starting RAG engine...")
+        print("[ENGINE] 📚 Searching through documents...")
         
         # Get response from chat
         result = chat.ask(question)
         
-        print(f"[API] Response: {result.get('answer', 'No answer')[:100]}...")
+        elapsed_time = time.time() - start_time
+        
+        print(f"[ENGINE] ✅ Processing complete!")
+        print(f"[ENGINE] ⏱️  Time taken: {elapsed_time:.2f}s")
+        
+        if result.get('sources'):
+            print(f"[ENGINE] 📖 Found {len(result['sources'])} relevant sources:")
+            for i, src in enumerate(result['sources'], 1):
+                print(f"[ENGINE]    [{i}] {src.get('title', 'Unknown')}")
+        
+        print(f"[ENGINE] 📝 Generated answer length: {len(result.get('answer', ''))} characters")
+        print(f"{'='*80}\n")
         
         if 'error' in result:
             return jsonify({'error': result['error']}), 500
@@ -56,7 +77,8 @@ def ask():
         return jsonify({
             'answer': result.get('answer', 'No answer generated'),
             'sources': result.get('sources', []),
-            'model': result.get('model', 'unknown')
+            'model': result.get('model', 'unknown'),
+            'elapsed_time': elapsed_time
         })
     
     except Exception as e:
@@ -64,6 +86,32 @@ def ask():
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/source')
+def get_source():
+    """Serve a source file"""
+    path = request.args.get('path')
+    if not path:
+        return "No path provided", 400
+    
+    # Security check: ensure path is within data/sources
+    # precise implementation depends on how paths are stored. 
+    # self.rag.documents stores absolute paths or relative?
+    # Let's assume relative to CWD or absolute.
+    # We should just try to serve it if it exists and is a file.
+    
+    if os.path.exists(path) and os.path.isfile(path):
+        directory = os.path.dirname(path)
+        filename = os.path.basename(path)
+        return send_from_directory(directory, filename)
+    else:
+        # Try relative to cwd
+        if os.path.exists(os.path.abspath(path)):
+             directory = os.path.dirname(os.path.abspath(path))
+             filename = os.path.basename(os.path.abspath(path))
+             return send_from_directory(directory, filename)
+        
+        return "File not found", 404
 
 def main():
     """Start the Flask server"""

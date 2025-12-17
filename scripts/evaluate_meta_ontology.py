@@ -31,6 +31,37 @@ load_dotenv()
 META = Namespace("http://pkm.local/meta-ontology/")
 ONTO_NS = Namespace("http://pkm.local/meta-ontology/")
 
+def load_feedback(feedback_path="data/meta_feedback.txt"):
+    """Load researcher feedback from visualization step"""
+    feedback = {
+        'auto_connect_isolated': False,
+        'isolated_nodes': [],
+        'missing_concepts': [],
+        'missing_relationships': [],
+        'suggestions': []
+    }
+    
+    if not Path(feedback_path).exists():
+        return feedback
+    
+    current_section = None
+    with open(feedback_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            
+            if line.startswith('AUTO_CONNECT_ISOLATED:'):
+                feedback['auto_connect_isolated'] = 'True' in line
+            elif line.endswith(':'):
+                current_section = line[:-1].lower()
+            elif line.startswith('- ') and current_section:
+                item = line[2:].strip()
+                if current_section in feedback:
+                    feedback[current_section].append(item)
+    
+    return feedback
+
 def load_meta_ontology(file_path):
     """Load meta-ontology from TTL file"""
     g = Graph()
@@ -58,17 +89,21 @@ def get_classes_and_properties(g):
             'connections': 0
         }
     
-    # Count connections for each class
+    # Count connections for each class by looking at ALL domain/range triples
+    # (not just properties with rdf:type owl:ObjectProperty)
+    for s, p, o in g.triples((None, RDFS.domain, None)):
+        if str(o) in classes:
+            classes[str(o)]['connections'] += 1
+    
+    for s, p, o in g.triples((None, RDFS.range, None)):
+        if str(o) in classes:
+            classes[str(o)]['connections'] += 1
+    
+    # Get properties
     for s, p, o in g.triples((None, RDF.type, OWL.ObjectProperty)):
+        prop_label = str(g.value(s, RDFS.label) or s.split('/')[-1])
         domain = g.value(s, RDFS.domain)
         range_val = g.value(s, RDFS.range)
-        
-        if domain and str(domain) in classes:
-            classes[str(domain)]['connections'] += 1
-        if range_val and str(range_val) in classes:
-            classes[str(range_val)]['connections'] += 1
-        
-        prop_label = str(g.value(s, RDFS.label) or s.split('/')[-1])
         properties.append({
             'uri': str(s),
             'label': prop_label,
@@ -186,6 +221,21 @@ def main():
     print(f"Threshold: {threshold}")
     print(f"Output: {output_path}")
     
+    # Load researcher feedback
+    print("\n📝 Loading researcher feedback...")
+    feedback = load_feedback("data/meta_feedback.txt")
+    if feedback['auto_connect_isolated']:
+        print(f"   ✓ Auto-connect enabled for isolated nodes")
+        if feedback['isolated_nodes']:
+            print(f"   ✓ Target nodes: {', '.join(feedback['isolated_nodes'])}")
+    else:
+        print(f"   ℹ️  No feedback file or auto-connect disabled")
+        print(f"   ℹ️  Will evaluate all disconnected nodes")
+    
+    if feedback['missing_concepts']:
+        print(f"   ⚠️  Missing concepts noted: {', '.join(feedback['missing_concepts'])}")
+        print(f"   💡 Consider adding these manually to meta-ontology")
+    
     # Load meta-ontology
     print("\n📖 Loading meta-ontology...")
     g = load_meta_ontology(input_path)
@@ -198,69 +248,96 @@ def main():
     print(f"   Found {len(classes)} classes")
     print(f"   Found {len(properties)} properties")
     
-    # Find disconnected nodes
-    disconnected = find_disconnected_nodes(classes)
-    print(f"\n⚠️  Found {len(disconnected)} disconnected nodes:")
-    for uri, data in disconnected.items():
-        print(f"   - {data['label']}")
-    
-    if not disconnected:
-        print("\n✅ No disconnected nodes! Meta-ontology is fully connected.")
-        return
-    
     # Initialize OpenAI client
     print("\n🤖 Initializing LLM evaluator...")
     client = OpenAI()
     
-    # Evaluate connections for each disconnected node
-    print(f"\n🔗 Evaluating potential connections (threshold: {threshold})...")
-    connections_added = 0
+    # Iteratively connect isolated nodes until none remain
+    total_connections_added = 0
+    iteration = 0
+    max_iterations = 5
     
-    for disconnected_uri, disconnected_data in disconnected.items():
-        print(f"\n  Evaluating: {disconnected_data['label']}")
+    while iteration < max_iterations:
+        iteration += 1
         
-        # Try connecting to each connected node
-        connected_classes = {uri: data for uri, data in classes.items() 
-                           if data['connections'] > 0 and uri != disconnected_uri}
+        # Re-analyze structure to find disconnected nodes
+        classes, properties = get_classes_and_properties(g)
+        disconnected = find_disconnected_nodes(classes)
         
-        for target_uri, target_data in connected_classes.items():
-            print(f"    vs {target_data['label']}...", end=" ")
+        if iteration == 1:
+            print(f"\n⚠️  Found {len(disconnected)} disconnected nodes:")
+            for uri, data in disconnected.items():
+                print(f"   - {data['label']}")
+        
+        if not disconnected:
+            if iteration == 1:
+                print("\n✅ No disconnected nodes! Meta-ontology is fully connected.")
+            else:
+                print(f"\n✅ All nodes connected after {iteration-1} iteration(s)!")
+            break
+        
+        if iteration > 1:
+            print(f"\n🔄 Iteration {iteration}: {len(disconnected)} nodes still disconnected")
+            for uri, data in disconnected.items():
+                print(f"   - {data['label']}")
+        
+        # Evaluate connections for each disconnected node
+        print(f"\n🔗 Evaluating potential connections (threshold: {threshold})...")
+        connections_added = 0
+        
+        for disconnected_uri, disconnected_data in disconnected.items():
+            print(f"\n  Evaluating: {disconnected_data['label']}")
             
-            # Evaluate with LLM
-            result = evaluate_connection_with_llm(
-                disconnected_data,
-                target_data,
-                properties,
-                client
-            )
+            # Try connecting to ALL other nodes (not just connected ones)
+            # This allows cross-connections between isolated nodes
+            other_classes = {uri: data for uri, data in classes.items() 
+                           if uri != disconnected_uri}
             
-            relevance = result.get('relevance_score', 0.0)
-            should_connect = result.get('should_connect', False)
-            
-            print(f"score: {relevance:.2f}", end="")
-            
-            if should_connect and relevance >= threshold:
-                # Add connection
-                relationship = result.get('relationship_label', 'relatesTo')
-                direction = result.get('relationship_direction', 'source_to_target')
-                reasoning = result.get('reasoning', '')
+            for target_uri, target_data in other_classes.items():
+                print(f"    vs {target_data['label']}...", end=" ")
                 
-                prop_uri = add_property_to_graph(
-                    g, 
-                    disconnected_uri if direction == 'source_to_target' else target_uri,
-                    target_uri if direction == 'source_to_target' else disconnected_uri,
-                    relationship,
-                    direction
+                # Evaluate with LLM
+                result = evaluate_connection_with_llm(
+                    disconnected_data,
+                    target_data,
+                    properties,
+                    client
                 )
                 
-                connections_added += 1
-                print(f" ✅ ADDED: {relationship}")
-                print(f"      → {reasoning}")
-            else:
-                print(f" ❌ skip")
+                relevance = result.get('relevance_score', 0.0)
+                should_connect = result.get('should_connect', False)
+                
+                print(f"score: {relevance:.2f}", end="")
+                
+                if should_connect and relevance >= threshold:
+                    # Add connection
+                    relationship = result.get('relationship_label', 'relatesTo')
+                    direction = result.get('relationship_direction', 'source_to_target')
+                    reasoning = result.get('reasoning', '')
+                    
+                    prop_uri = add_property_to_graph(
+                        g, 
+                        disconnected_uri if direction == 'source_to_target' else target_uri,
+                        target_uri if direction == 'source_to_target' else disconnected_uri,
+                        relationship,
+                        direction
+                    )
+                    
+                    connections_added += 1
+                    total_connections_added += 1
+                    print(f" ✅ ADDED: {relationship}")
+                    print(f"      → {reasoning}")
+                else:
+                    print(f" ❌ skip")
+        
+        # If no connections were added in this iteration, break to avoid infinite loop
+        if connections_added == 0:
+            print(f"\n⚠️  Could not connect remaining isolated nodes (threshold too high?)")
+            print(f"   Try lowering threshold: --threshold 0.5")
+            break
     
     # Save updated ontology
-    if connections_added > 0:
+    if total_connections_added > 0:
         print(f"\n💾 Saving updated meta-ontology...")
         output_path.parent.mkdir(parents=True, exist_ok=True)
         
@@ -273,7 +350,8 @@ def main():
         
         new_triple_count = len(g)
         print(f"   Triples: {original_triple_count} → {new_triple_count} (+{new_triple_count - original_triple_count})")
-        print(f"   New connections: {connections_added}")
+        print(f"   New connections: {total_connections_added}")
+        print(f"   Iterations: {iteration}")
         print(f"\n✅ Updated meta-ontology saved to: {output_path}")
         print("\n⚠️  NEXT STEPS:")
         print("   1. Review the new connections (open TTL file)")

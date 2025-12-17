@@ -1,0 +1,23 @@
+============================================================
+URL IMPORT REPORT
+Generated: 2025-12-17 08:25:41
+============================================================
+
+## Statistics
+
+  Total URLs: 3
+  Successful: 0 (0%)
+  Failed: 3
+
+## Successful Imports
+
+## Failed Imports
+
+  ✗ https://doi.org/10.1093/ijlit/eaae005
+    Error: Failed to extract content
+
+  ✗ https://doi.org/10.1093/grurint/ikac107
+    Error: Failed to extract content
+
+  ✗ https://doi.org/10.1080/02646811.2025.2485725
+    Error: Failed to extract content
